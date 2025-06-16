@@ -1,10 +1,7 @@
-﻿// File: Models/TransaksiContext.cs
-using System;
-using System.Collections.Generic;
-using Npgsql;
+﻿using Npgsql;
 using Z_TRIP.Helpers;
 
-namespace Z_TRIP.Models
+namespace Z_TRIP.Models.Contexts
 {
     public class TransaksiContext
     {

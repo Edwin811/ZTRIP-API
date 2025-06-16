@@ -5,7 +5,8 @@ using Z_TRIP.Models;
 using System.IO;
 using System.Threading.Tasks;
 using Z_TRIP.Exceptions;
-
+using Z_TRIP.Models.Contexts;
+using System.Text.Json;
 
 namespace Z_TRIP.Controllers
 {
@@ -92,37 +93,48 @@ namespace Z_TRIP.Controllers
         [Authorize]
         public IActionResult GetById(int id)
         {
-            var context = new TransaksiContext(_constr);
-            var transaksi = context.GetTransaksiById(id);
-
-            if (transaksi == null)
-                return NotFound(new { message = "Transaksi tidak ditemukan" });
-
-            // Batasi customer hanya bisa melihat transaksinya sendiri
-            var bookingCtx = new BookingContext(_constr);
-            var booking = bookingCtx.GetBookingByTransactionId(id);
-
-            var userIdClaim = User.FindFirst("userId")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
-                return Unauthorized(new { message = "User tidak valid" });
-
-            bool isAdmin = User.IsInRole("Admin");
-
-            if (!isAdmin && (booking == null || booking.UserId != userId))
-                return Forbid();
-
-            var result = new
+            try
             {
-                transaksi.Id,
-                transaksi.Method,
-                transaksi.PaymentStatus,
-                transaksi.Amount,
-                HasPaymentImage = transaksi.PaymentImage != null && transaksi.PaymentImage.Length > 0,
-                transaksi.CreatedAt,
-                transaksi.UpdatedAt
-            };
+                // Add validation for ID
+                if (id <= 0)
+                    return BadRequest(new { message = "ID transaksi tidak valid" });
 
-            return Ok(result);
+                var context = new TransaksiContext(_constr);
+                var transaksi = context.GetTransaksiById(id);
+
+                if (transaksi == null)
+                    return NotFound(new { message = "Transaksi tidak ditemukan" });
+
+                // Batasi customer hanya bisa melihat transaksinya sendiri
+                var bookingCtx = new BookingContext(_constr);
+                var booking = bookingCtx.GetBookingByTransactionId(id);
+
+                var userIdClaim = User.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
+                    return Unauthorized(new { message = "User tidak valid" });
+
+                bool isAdmin = User.IsInRole("Admin");
+
+                if (!isAdmin && (booking == null || booking.UserId != userId))
+                    return Forbid();
+
+                var result = new
+                {
+                    transaksi.Id,
+                    transaksi.Method,
+                    transaksi.PaymentStatus,
+                    transaksi.Amount,
+                    HasPaymentImage = transaksi.PaymentImage != null && transaksi.PaymentImage.Length > 0,
+                    transaksi.CreatedAt,
+                    transaksi.UpdatedAt
+                };
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
         }
 
         // GET api/transaksi/payment-image/{id}
@@ -130,26 +142,37 @@ namespace Z_TRIP.Controllers
         [Authorize]
         public IActionResult GetPaymentImage(int id)
         {
-            var context = new TransaksiContext(_constr);
-            var transaksi = context.GetTransaksiById(id);
+            try
+            {
+                // Add validation for ID
+                if (id <= 0)
+                    return BadRequest(new { message = "ID transaksi tidak valid" });
 
-            if (transaksi == null || transaksi.PaymentImage == null || transaksi.PaymentImage.Length == 0)
-                return NotFound(new { message = "Bukti pembayaran tidak ditemukan" });
+                var context = new TransaksiContext(_constr);
+                var transaksi = context.GetTransaksiById(id);
 
-            // Batasi customer hanya bisa melihat transaksinya sendiri
-            var bookingCtx = new BookingContext(_constr);
-            var booking = bookingCtx.GetBookingByTransactionId(id);
+                if (transaksi == null || transaksi.PaymentImage == null || transaksi.PaymentImage.Length == 0)
+                    return NotFound(new { message = "Bukti pembayaran tidak ditemukan" });
 
-            var userIdClaim = User.FindFirst("userId")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
-                return Unauthorized(new { message = "User tidak valid" });
+                // Batasi customer hanya bisa melihat transaksinya sendiri
+                var bookingCtx = new BookingContext(_constr);
+                var booking = bookingCtx.GetBookingByTransactionId(id);
 
-            bool isAdmin = User.IsInRole("Admin");
+                var userIdClaim = User.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
+                    return Unauthorized(new { message = "User tidak valid" });
 
-            if (!isAdmin && (booking == null || booking.UserId != userId))
-                return Forbid();
+                bool isAdmin = User.IsInRole("Admin");
 
-            return File(transaksi.PaymentImage, "image/jpeg");
+                if (!isAdmin && (booking == null || booking.UserId != userId))
+                    return Forbid();
+
+                return File(transaksi.PaymentImage, "image/jpeg");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
         }
 
         // POST api/transaksi/upload-payment/{id}
@@ -159,8 +182,21 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Add validation for ID
+                if (id <= 0)
+                    return BadRequest(new { message = "ID transaksi tidak valid" });
+
                 if (file == null || file.Length == 0)
                     return BadRequest(new { message = "File bukti pembayaran tidak boleh kosong" });
+
+                // Validate file has a filename
+                if (string.IsNullOrEmpty(file.FileName))
+                    return BadRequest(new { message = "Nama file tidak valid" });
+
+                // Validate file extension
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (string.IsNullOrEmpty(extension) || !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
+                    return BadRequest(new { message = "Format file harus jpg, jpeg, atau png" });
 
                 // Validasi tipe file
                 var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
@@ -253,6 +289,7 @@ namespace Z_TRIP.Controllers
                 return StatusCode(500, new { message = $"Error: {ex.Message}" });
             }
         }
+
         // GET api/transaksi/unpaid
         [HttpGet("unpaid")]
         [Authorize]
@@ -333,6 +370,10 @@ namespace Z_TRIP.Controllers
         // Helper method untuk format tanggal
         private string FormatYYYYMMDD(DateTime date)
         {
+            // Add validation to handle DateTime.MinValue
+            if (date == DateTime.MinValue)
+                return "00000000";
+
             return date.ToString("yyyyMMdd");
         }
 
@@ -341,6 +382,13 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Validate transactionId
+                if (transactionId <= 0)
+                {
+                    Console.WriteLine($"Invalid transaction ID: {transactionId}");
+                    return;
+                }
+
                 // Cari booking yang terkait dengan transaksi ini
                 var bookingCtx = new BookingContext(_constr);
                 var booking = bookingCtx.GetBookingByTransactionId(transactionId);
@@ -404,6 +452,10 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Add validation for ID
+                if (id <= 0)
+                    return BadRequest(new { message = "ID transaksi tidak valid" });
+
                 var context = new TransaksiContext(_constr);
                 var transaksi = context.GetTransaksiById(id);
 
@@ -448,16 +500,159 @@ namespace Z_TRIP.Controllers
                 return StatusCode(500, new { message = $"Error: {ex.Message}" });
             }
         }
-    }
 
-    // Helper class for status update
-    public class StatusUpdate
-    {
-        public string Status { get; set; } = string.Empty;
-    }
+        // POST api/transaksi/{id}/reject-payment
+        [HttpPost("{id}/reject-payment")]
+        [Authorize(Policy = "AdminOnly")]
+        public IActionResult RejectPayment(int id, [FromBody] JsonElement requestBody)
+        {
+            try
+            {
+                // Add validation for ID
+                if (id <= 0)
+                    return BadRequest(new { message = "ID transaksi tidak valid" });
 
-    public class RejectPaymentRequest
-    {
-        public string Reason { get; set; } = string.Empty;
+                // Check if request body is null/undefined
+                if (requestBody.ValueKind == JsonValueKind.Undefined ||
+                    requestBody.ValueKind == JsonValueKind.Null)
+                {
+                    return BadRequest(new { message = "Data alasan penolakan harus diisi" });
+                }
+
+                // Extract reason from JSON request
+                if (!requestBody.TryGetProperty("reason", out JsonElement reasonElement) ||
+                    reasonElement.ValueKind != JsonValueKind.String)
+                {
+                    return BadRequest(new { message = "Alasan penolakan harus diisi" });
+                }
+
+                string reason = reasonElement.GetString() ?? string.Empty;
+
+                if (string.IsNullOrEmpty(reason))
+                    return BadRequest(new { message = "Alasan penolakan harus diisi" });
+
+                // Validate reason length
+                if (reason.Length < 5)
+                    return BadRequest(new { message = "Alasan penolakan terlalu pendek, minimal 5 karakter" });
+
+                if (reason.Length > 500)
+                    return BadRequest(new { message = "Alasan penolakan terlalu panjang, maksimal 500 karakter" });
+
+
+                var context = new TransaksiContext(_constr);
+                var transaksi = context.GetTransaksiById(id);
+
+                if (transaksi == null)
+                    return NotFound(new { message = $"Transaksi dengan ID {id} tidak ditemukan" });
+
+                // Cek status transaksi
+                if (transaksi.PaymentStatus != payment_status_enum.pending)
+                    return BadRequest(new
+                    {
+                        message = "Hanya pembayaran dengan status pending yang dapat ditolak",
+                        currentStatus = transaksi.PaymentStatus.ToString()
+                    });
+
+                // Update status transaksi ke unpaid
+                context.UpdateTransaksiStatus(id, payment_status_enum.unpaid.ToString());
+
+                // Update status booking juga
+                var bookingCtx = new BookingContext(_constr);
+                var booking = bookingCtx.GetBookingByTransactionId(id);
+
+                if (booking != null)
+                {
+                    // Update booking note dengan alasan penolakan
+                    bookingCtx.UpdateStatusNote(booking.Id, $"Bukti pembayaran ditolak: {reason}");
+
+                    // Booking status tetap pending, customer perlu upload ulang
+                    if (booking.Status != booking_status_enum.pending)
+                    {
+                        bookingCtx.UpdateStatusBooking(booking.Id, booking_status_enum.pending.ToString());
+                    }
+                }
+
+                return Ok(new
+                {
+                    message = "Pembayaran berhasil ditolak",
+                    paymentStatus = "unpaid",
+                    reason = reason,
+                    bookingId = booking?.Id,
+                    bookingStatus = booking?.Status.ToString() ?? "unknown",
+                    nextSteps = "Customer perlu mengupload ulang bukti pembayaran yang valid"
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
+        }
+
+        // PUT api/transaksi/{id}/update-status
+        [HttpPut("{id}/update-status")]
+        [Authorize(Policy = "AdminOnly")]
+        public IActionResult UpdateStatus(int id, [FromBody] JsonElement requestBody)
+        {
+            try
+            {
+                // Add validation for ID
+                if (id <= 0)
+                    return BadRequest(new { message = "ID transaksi tidak valid" });
+
+                // Check if request body is null/undefined
+                if (requestBody.ValueKind == JsonValueKind.Undefined ||
+                    requestBody.ValueKind == JsonValueKind.Null)
+                {
+                    return BadRequest(new { message = "Data status harus diisi" });
+                }
+
+                // Extract status from JSON request
+                if (!requestBody.TryGetProperty("status", out JsonElement statusElement) ||
+                    statusElement.ValueKind != JsonValueKind.String)
+                {
+                    return BadRequest(new { message = "Status harus diisi" });
+                }
+
+                string status = statusElement.GetString() ?? string.Empty;
+
+                if (string.IsNullOrEmpty(status))
+                    return BadRequest(new { message = "Status harus diisi" });
+
+                // List allowed status values for better error messaging
+                var allowedStatusValues = string.Join(", ", Enum.GetNames(typeof(payment_status_enum)));
+
+                // Validasi status
+                if (!Enum.TryParse<payment_status_enum>(status, true, out var newStatus))
+                    return BadRequest(new
+                    {
+                        message = $"Status pembayaran tidak valid. Nilai yang diizinkan: {allowedStatusValues}"
+                    });
+
+
+                var context = new TransaksiContext(_constr);
+                var transaksi = context.GetTransaksiById(id);
+
+                if (transaksi == null)
+                    return NotFound(new { message = $"Transaksi dengan ID {id} tidak ditemukan" });
+
+                // Update status transaksi
+                if (!context.UpdateTransaksiStatus(id, newStatus.ToString()))
+                    return StatusCode(500, new { message = "Gagal mengupdate status transaksi" });
+
+                // Sync booking status based on new payment status
+                SyncBookingStatus(id, newStatus);
+
+                return Ok(new
+                {
+                    message = $"Status transaksi berhasil diubah menjadi {newStatus.ToString()}",
+                    transactionId = id,
+                    newStatus = newStatus.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
+        }
     }
 }

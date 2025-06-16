@@ -1,15 +1,15 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
 using Z_TRIP.Models;
-using System.Collections.Generic;
 using Microsoft.AspNetCore.Authorization;
 using Z_TRIP.Exceptions;
-
+using Z_TRIP.Models.Contexts;
+using System.Text.Json;
 
 namespace Z_TRIP.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+
     public class BookingController : ControllerBase
     {
         private readonly string _constr;
@@ -138,10 +138,16 @@ namespace Z_TRIP.Controllers
 
         [HttpGet("{id:int}")]
         [Authorize]
-        public ActionResult<BookingResponse> GetById(int id)
+        public IActionResult GetById(int id)
         {
             try
             {
+                // Add validation for ID parameter
+                if (id <= 0)
+                {
+                    return BadRequest(new { message = "ID booking tidak valid" });
+                }
+
                 // Ambil user ID dari token
                 var userIdClaim = User.FindFirst("userId")?.Value;
                 if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
@@ -269,6 +275,18 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Add validation for status parameter
+                if (string.IsNullOrEmpty(status))
+                {
+                    return BadRequest(new { message = "Parameter status tidak boleh kosong" });
+                }
+
+                // Validate status is a valid enum value
+                if (!Enum.TryParse<booking_status_enum>(status, true, out _))
+                {
+                    return BadRequest(new { message = "Status booking tidak valid" });
+                }
+
                 // Ambil user ID dari token
                 var userIdClaim = User.FindFirst("userId")?.Value;
                 if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
@@ -308,45 +326,112 @@ namespace Z_TRIP.Controllers
         [Authorize]
         public ActionResult<List<Booking>> GetByVehicleUnit(int vehicleUnitId)
         {
-            var userIdClaim = User.FindFirst("userId")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
-                return Unauthorized(new { message = "User tidak valid" });
+            try
+            {
+                // Add validation for ID parameter
+                if (vehicleUnitId <= 0)
+                {
+                    return BadRequest(new { message = "ID unit kendaraan tidak valid" });
+                }
 
-            bool isAdmin = User.IsInRole("Admin");
+                var userIdClaim = User.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
+                    return Unauthorized(new { message = "User tidak valid" });
 
-            var list = new BookingContext(_constr).GetVehicleSchedule(vehicleUnitId);
+                bool isAdmin = User.IsInRole("Admin");
 
-            // Batasi customer hanya bisa melihat booking miliknya sendiri
-            if (!isAdmin)
-                list = list.Where(b => b.UserId == userId).ToList();
+                var list = new BookingContext(_constr).GetVehicleSchedule(vehicleUnitId);
 
-            if (list.Count == 0)
-                return NotFound($"Tidak ada jadwal booking untuk vehicle_unit_id {vehicleUnitId}.");
-            return Ok(list);
+                // Batasi customer hanya bisa melihat booking miliknya sendiri
+                if (!isAdmin)
+                    list = list.Where(b => b.UserId == userId).ToList();
+
+                if (list.Count == 0)
+                    return NotFound($"Tidak ada jadwal booking untuk vehicle_unit_id {vehicleUnitId}.");
+                return Ok(list);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
         }
 
         [HttpPost]
         [Authorize]
-        public IActionResult Create([FromBody] BookingCreateRequest request)
+        public IActionResult Create([FromBody] JsonElement requestBody)
         {
             try
             {
                 // Validasi input
-                if (request == null)
+                if (requestBody.ValueKind == JsonValueKind.Undefined)
                     throw new ValidationException("Data booking tidak boleh kosong");
 
+                // Extract fields from JsonElement
+                int vehicleUnitId;
+                string startDate, endDate;
+                string? note = null;
+
+                // Get vehicleUnitId
+                if (!requestBody.TryGetProperty("vehicleUnitId", out JsonElement vehicleUnitIdElement) ||
+                    !vehicleUnitIdElement.TryGetInt32(out vehicleUnitId))
+                {
+                    throw new ValidationException("VehicleUnitId harus disediakan dan merupakan integer");
+                }
+
+                // Get startDate
+                if (!requestBody.TryGetProperty("startDate", out JsonElement startDateElement) ||
+                    startDateElement.ValueKind != JsonValueKind.String)
+                {
+                    throw new ValidationException("StartDate harus disediakan dan dalam format string");
+                }
+                startDate = startDateElement.GetString() ?? string.Empty;
+
+                // Get endDate
+                if (!requestBody.TryGetProperty("endDate", out JsonElement endDateElement) ||
+                    endDateElement.ValueKind != JsonValueKind.String)
+                {
+                    throw new ValidationException("EndDate harus disediakan dan dalam format string");
+                }
+                endDate = endDateElement.GetString() ?? string.Empty;
+
+                // Get optional note
+                if (requestBody.TryGetProperty("note", out JsonElement noteElement) &&
+                    noteElement.ValueKind == JsonValueKind.String)
+                {
+                    note = noteElement.GetString();
+                }
+
+                // Additional validation for startDate length
+                if (startDate.Length != 8)
+                    throw new ValidationException("Format startDate harus YYYYMMDD");
+
+                // Additional validation for endDate length
+                if (endDate.Length != 8)
+                    throw new ValidationException("Format endDate harus YYYYMMDD");
+
+                // Additional validation to ensure dates are numeric
+                if (!startDate.All(char.IsDigit))
+                    throw new ValidationException("startDate harus berisi angka saja");
+
+                if (!endDate.All(char.IsDigit))
+                    throw new ValidationException("endDate harus berisi angka saja");
+
+                // Additional validation for vehicle ID
+                if (vehicleUnitId <= 0)
+                    throw new ValidationException("ID unit kendaraan tidak valid");
+
                 // Parse tanggal dari format YYYYMMDD
-                var startDate = ParseYYYYMMDD(request.StartDate, "startDate");
-                var endDate = ParseYYYYMMDD(request.EndDate, "endDate");
+                var startDateTime = ParseYYYYMMDD(startDate, "startDate");
+                var endDateTime = ParseYYYYMMDD(endDate, "endDate");
 
                 // Tambahkan 1 hari dikurangi 1 detik agar mencakup seluruh hari terakhir
-                endDate = endDate.AddDays(1).AddSeconds(-1);
+                endDateTime = endDateTime.AddDays(1).AddSeconds(-1);
 
-                if (startDate >= endDate)
+                if (startDateTime >= endDateTime)
                     throw new ValidationException("Waktu mulai harus sebelum waktu selesai");
 
                 // Validasi tanggal pemesanan
-                if (startDate < DateTime.Today)
+                if (startDateTime < DateTime.Today)
                     throw new ValidationException("Tanggal booking tidak boleh di masa lalu");
 
                 // Ambil user id
@@ -378,14 +463,14 @@ namespace Z_TRIP.Controllers
 
                 // Pastikan user memilih kendaraan yang valid
                 var vehicleUnitsCtx = new VehicleUnitsContext(_constr);
-                var vehicleUnit = vehicleUnitsCtx.GetVehicleUnitById(request.VehicleUnitId);
+                var vehicleUnit = vehicleUnitsCtx.GetVehicleUnitById(vehicleUnitId);
                 if (vehicleUnit == null)
-                    throw new ResourceNotFoundException($"Unit kendaraan dengan ID {request.VehicleUnitId} tidak ditemukan");
+                    throw new ResourceNotFoundException($"Unit kendaraan dengan ID {vehicleUnitId} tidak ditemukan");
 
                 // Cek ketersediaan (konflik jadwal)
                 var bookingCtx = new BookingContext(_constr);
                 var conflictingBookings = bookingCtx.GetBookingsByVehicleUnitAndDateRange(
-                    request.VehicleUnitId, startDate, endDate);
+                    vehicleUnitId, startDateTime, endDateTime);
 
                 var activeConflicts = conflictingBookings
                     .Where(b => b.Status != booking_status_enum.rejected && b.Status != booking_status_enum.done)
@@ -407,7 +492,7 @@ namespace Z_TRIP.Controllers
                 }
 
                 // Hitung jumlah pembayaran
-                var durationDays = Math.Ceiling((endDate - startDate).TotalDays);
+                var durationDays = Math.Ceiling((endDateTime - startDateTime).TotalDays);
                 var totalAmount = vehicleUnit.PricePerDay * (decimal)durationDays;
 
                 // Buat transaksi pembayaran
@@ -428,10 +513,10 @@ namespace Z_TRIP.Controllers
                 var booking = new Booking
                 {
                     UserId = userId,
-                    VehicleUnitId = request.VehicleUnitId,
-                    StartDatetime = startDate,
-                    EndDatetime = endDate,
-                    StatusNote = request.Note,
+                    VehicleUnitId = vehicleUnitId,
+                    StartDatetime = startDateTime,
+                    EndDatetime = endDateTime,
+                    StatusNote = note,
                     TransactionId = txnId,
                     Status = booking_status_enum.pending
                 };
@@ -458,8 +543,8 @@ namespace Z_TRIP.Controllers
                             Id = createdBooking.Id,
                             UserId = createdBooking.UserId,
                             VehicleUnitId = createdBooking.VehicleUnitId,
-                            StartDate = FormatYYYYMMDD(startDate),
-                            EndDate = FormatYYYYMMDD(endDate.Date),
+                            StartDate = FormatYYYYMMDD(startDateTime),
+                            EndDate = FormatYYYYMMDD(endDateTime.Date),
                             Status = createdBooking.Status.ToString(),
                             StatusNote = createdBooking.StatusNote,
                             TransactionId = createdBooking.TransactionId,
@@ -500,8 +585,8 @@ namespace Z_TRIP.Controllers
                             },
                             Schedule = new
                             {
-                                StartDate = FormatYYYYMMDD(startDate),
-                                EndDate = FormatYYYYMMDD(endDate.Date),
+                                StartDate = FormatYYYYMMDD(startDateTime),
+                                EndDate = FormatYYYYMMDD(endDateTime.Date),
                                 DurationDays = durationDays
                             },
                             Payment = new
@@ -544,6 +629,18 @@ namespace Z_TRIP.Controllers
         // Helper method untuk menghitung jumlah pembayaran
         private decimal CalculateTotalAmount(decimal pricePerDay, DateTime start, DateTime end)
         {
+            // Check for invalid price
+            if (pricePerDay <= 0)
+            {
+                throw new ValidationException("Harga per hari harus lebih dari 0");
+            }
+
+            // Check for invalid date range
+            if (start > end)
+            {
+                throw new ValidationException("Tanggal mulai tidak boleh setelah tanggal selesai");
+            }
+
             var days = (end - start).TotalDays;
             // Jika kurang dari 1 hari, tetap hitung sebagai 1 hari
             if (days < 1) days = 1;
@@ -552,12 +649,44 @@ namespace Z_TRIP.Controllers
 
         [HttpPatch("{id}/reject")]
         [Authorize(Policy = "AdminOnly")]
-        public IActionResult RejectBooking(int id, [FromBody] RejectBookingRequest request)
+        public IActionResult RejectBooking(int id, [FromBody] JsonElement requestBody)
         {
             try
             {
-                if (string.IsNullOrEmpty(request.Reason))
+                // Add validation for ID parameter
+                if (id <= 0)
+                {
+                    return BadRequest(new { message = "ID booking tidak valid" });
+                }
+
+                // Validate request body isn't empty
+                if (requestBody.ValueKind == JsonValueKind.Undefined ||
+                    requestBody.ValueKind == JsonValueKind.Null)
+                {
+                    return BadRequest(new { message = "Data penolakan tidak boleh kosong" });
+                }
+
+                // Extract fields from requestBody
+                string reason;
+                string? paymentStatus = null;
+
+                // Get reason
+                if (!requestBody.TryGetProperty("reason", out JsonElement reasonElement) ||
+                    reasonElement.ValueKind != JsonValueKind.String)
+                {
                     return BadRequest(new { message = "Alasan penolakan harus diisi" });
+                }
+                reason = reasonElement.GetString() ?? string.Empty;
+
+                if (string.IsNullOrEmpty(reason))
+                    return BadRequest(new { message = "Alasan penolakan harus diisi" });
+
+                // Get optional paymentStatus
+                if (requestBody.TryGetProperty("paymentStatus", out JsonElement paymentStatusElement) &&
+                    paymentStatusElement.ValueKind == JsonValueKind.String)
+                {
+                    paymentStatus = paymentStatusElement.GetString();
+                }
 
                 var bookingCtx = new BookingContext(_constr);
                 var booking = bookingCtx.GetBookingById(id);
@@ -577,14 +706,14 @@ namespace Z_TRIP.Controllers
 
                 // Update status booking menjadi rejected
                 bookingCtx.UpdateStatusBooking(id, booking_status_enum.rejected.ToString());
-                bookingCtx.UpdateStatusNote(id, $"Booking ditolak: {request.Reason}");
+                bookingCtx.UpdateStatusNote(id, $"Booking ditolak: {reason}");
 
                 // Perbarui status transaksi jika diminta oleh admin
                 var updatedPaymentStatus = "";
-                if (booking.TransactionId.HasValue && !string.IsNullOrEmpty(request.PaymentStatus))
+                if (booking.TransactionId.HasValue && !string.IsNullOrEmpty(paymentStatus))
                 {
                     // Validasi status pembayaran yang diminta
-                    if (!Enum.TryParse<payment_status_enum>(request.PaymentStatus, true, out var paymentStatus))
+                    if (!Enum.TryParse<payment_status_enum>(paymentStatus, true, out var paymentStatusEnum))
                         return BadRequest(new { message = "Status pembayaran tidak valid" });
 
                     var txnCtx = new TransaksiContext(_constr);
@@ -593,7 +722,7 @@ namespace Z_TRIP.Controllers
                     if (transaksi != null)
                     {
                         // Pemeriksaan logis status pembayaran
-                        if (paymentStatus == payment_status_enum.paid && transaksi.PaymentImage == null)
+                        if (paymentStatusEnum == payment_status_enum.paid && transaksi.PaymentImage == null)
                         {
                             return BadRequest(new
                             {
@@ -602,12 +731,12 @@ namespace Z_TRIP.Controllers
                         }
 
                         // Update status transaksi
-                        txnCtx.UpdateTransaksiStatus(booking.TransactionId.Value, paymentStatus.ToString());
-                        updatedPaymentStatus = paymentStatus.ToString();
+                        txnCtx.UpdateTransaksiStatus(booking.TransactionId.Value, paymentStatusEnum.ToString());
+                        updatedPaymentStatus = paymentStatusEnum.ToString();
 
                         // Tambahkan catatan status pembayaran ke booking
-                        string paymentNote = GetPaymentStatusNote(paymentStatus);
-                        bookingCtx.UpdateStatusNote(id, $"Booking ditolak: {request.Reason}. {paymentNote}");
+                        string paymentNote = GetPaymentStatusNote(paymentStatusEnum);
+                        bookingCtx.UpdateStatusNote(id, $"Booking ditolak: {reason}. {paymentNote}");
                     }
                 }
 
@@ -616,7 +745,7 @@ namespace Z_TRIP.Controllers
                     message = "Booking berhasil ditolak",
                     bookingId = id,
                     status = "rejected",
-                    reason = request.Reason,
+                    reason = reason,
                     paymentStatus = string.IsNullOrEmpty(updatedPaymentStatus) ?
                         (booking.TransactionId.HasValue ?
                             new TransaksiContext(_constr).GetTransaksiById(booking.TransactionId.Value)?.PaymentStatus.ToString() :
@@ -642,43 +771,6 @@ namespace Z_TRIP.Controllers
             };
         }
 
-        // Helper method untuk memberikan instruksi selanjutnya
-        public class RejectBookingRequest
-        {
-            public string Reason { get; set; } = string.Empty;
-
-            // Tambahkan field untuk status pembayaran
-            // Null berarti tidak mengubah status pembayaran
-            public string? PaymentStatus { get; set; }
-        }
-
-        public class BookingResponse
-        {
-            public int Id { get; set; }
-            public string StartDate { get; set; } = string.Empty; // Format YYYYMMDD
-            public string EndDate { get; set; } = string.Empty;   // Format YYYYMMDD
-            public string Status { get; set; } = string.Empty;
-            public string? StatusNote { get; set; }
-            // ... other properties
-        }
-
-        public class BookingCreateRequest
-        {
-            public int VehicleUnitId { get; set; }
-            public string StartDate { get; set; } = string.Empty; // Format YYYYMMDD
-            public string EndDate { get; set; } = string.Empty;   // Format YYYYMMDD
-            public string? Note { get; set; }
-        }
-
-        public class BookingUpdateRequest
-        {
-            public int VehicleUnitId { get; set; }
-            public string StartDate { get; set; } = string.Empty; // Format YYYYMMDD
-            public string EndDate { get; set; } = string.Empty;   // Format YYYYMMDD
-            public string? Status { get; set; }
-            public string? Note { get; set; }
-        }
-
         private DateTime ParseYYYYMMDD(string dateStr, string paramName)
         {
             if (string.IsNullOrEmpty(dateStr))
@@ -688,14 +780,26 @@ namespace Z_TRIP.Controllers
 
             const string FORMAT = "yyyyMMdd";
 
-            if (dateStr.Length != 8 || !DateTime.TryParseExact(
+            // Additional check for length before trying to parse
+            if (dateStr.Length != 8)
+            {
+                throw new ValidationException($"Format {paramName} harus terdiri dari 8 digit dengan format {FORMAT}");
+            }
+
+            // Additional check that string contains only digits
+            if (!dateStr.All(char.IsDigit))
+            {
+                throw new ValidationException($"Format {paramName} harus berisi angka saja");
+            }
+
+            if (!DateTime.TryParseExact(
                 dateStr,
                 FORMAT,
                 System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.None,
                 out DateTime result))
             {
-                throw new ValidationException($"Format {paramName} harus {FORMAT}");
+                throw new ValidationException($"Format {paramName} tidak valid, gunakan format {FORMAT}");
             }
 
             return result;

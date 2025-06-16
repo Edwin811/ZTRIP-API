@@ -6,6 +6,8 @@ using Microsoft.Extensions.Configuration;
 using Z_TRIP.Helpers;
 using Z_TRIP.Models;
 using System.Linq;
+using Z_TRIP.Models.Contexts;
+
 
 namespace Z_TRIP.Controllers
 {
@@ -23,88 +25,122 @@ namespace Z_TRIP.Controllers
         }
 
         [HttpPost("register")]
-        public async Task<IActionResult> Register([FromForm] RegisterRequest request)
+        public async Task<IActionResult> Register(
+            [FromForm] string email,
+            [FromForm] string name,
+            [FromForm] string password,
+            [FromForm] IFormFile? profileImage = null,
+            [FromForm] IFormFile? ktpImage = null,
+            [FromForm] IFormFile? simImage = null)
         {
             try
             {
-                // Validasi input
-                if (string.IsNullOrEmpty(request.Email) ||
-                    string.IsNullOrEmpty(request.Name) ||
-                    string.IsNullOrEmpty(request.Password))
+                // Validasi input - expand basic validation
+                if (string.IsNullOrEmpty(email))
                 {
-                    return BadRequest(new { message = "Email, nama, dan password wajib diisi" });
+                    return BadRequest(new { message = "Email tidak boleh kosong" });
+                }
+
+                if (string.IsNullOrEmpty(name))
+                {
+                    return BadRequest(new { message = "Nama tidak boleh kosong" });
+                }
+
+                if (string.IsNullOrEmpty(password))
+                {
+                    return BadRequest(new { message = "Password tidak boleh kosong" });
+                }
+
+                // Validate email format
+                try
+                {
+                    var addr = new System.Net.Mail.MailAddress(email);
+                    if (addr.Address != email)
+                    {
+                        return BadRequest(new { message = "Format email tidak valid" });
+                    }
+                }
+                catch
+                {
+                    return BadRequest(new { message = "Format email tidak valid" });
+                }
+
+                // Validate password strength
+                if (password.Length < 6)
+                {
+                    return BadRequest(new { message = "Password minimal 6 karakter" });
                 }
 
                 // Cek apakah email sudah terdaftar
                 var ctx = new UsersContext(_constr);
-                if (ctx.GetUserByEmail(request.Email) != null)
+                if (ctx.GetUserByEmail(email) != null)
                 {
                     return BadRequest(new { message = "Email sudah terdaftar" });
                 }
 
                 // Proses KTP jika ada
                 byte[]? ktpImageData = null;
-                if (request.KtpImage != null && request.KtpImage.Length > 0)
+                if (ktpImage != null && ktpImage.Length > 0)
                 {
                     // Validasi tipe file
                     var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-                    if (!allowedTypes.Contains(request.KtpImage.ContentType))
+                    if (!allowedTypes.Contains(ktpImage.ContentType))
                         return BadRequest(new { message = "Tipe file KTP tidak didukung, gunakan JPG atau PNG" });
 
                     // Validasi ukuran file (maks 5MB)
-                    if (request.KtpImage.Length > 5 * 1024 * 1024)
+                    if (ktpImage.Length > 5 * 1024 * 1024)
                         return BadRequest(new { message = "Ukuran file KTP tidak boleh lebih dari 5MB" });
 
                     // Konversi file ke byte array
                     using var ms = new MemoryStream();
-                    await request.KtpImage.CopyToAsync(ms);
+                    await ktpImage.CopyToAsync(ms);
                     ktpImageData = ms.ToArray();
                 }
 
                 // Proses SIM jika ada
                 byte[]? simImageData = null;
-                if (request.SimImage != null && request.SimImage.Length > 0)
+                if (simImage != null && simImage.Length > 0)
                 {
                     // Validasi tipe file
                     var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-                    if (!allowedTypes.Contains(request.SimImage.ContentType))
+                    if (!allowedTypes.Contains(simImage.ContentType))
                         return BadRequest(new { message = "Tipe file SIM tidak didukung, gunakan JPG atau PNG" });
 
                     // Validasi ukuran file (maks 5MB)
-                    if (request.SimImage.Length > 5 * 1024 * 1024)
+                    if (simImage.Length > 5 * 1024 * 1024)
                         return BadRequest(new { message = "Ukuran file SIM tidak boleh lebih dari 5MB" });
 
                     // Konversi file ke byte array
                     using var ms = new MemoryStream();
-                    await request.SimImage.CopyToAsync(ms);
+                    await simImage.CopyToAsync(ms);
                     simImageData = ms.ToArray();
                 }
 
                 // Proses foto profil jika ada
                 byte[]? profileImageData = null;
-                if (request.ProfileImage != null && request.ProfileImage.Length > 0)
+                if (profileImage != null && profileImage.Length > 0)
                 {
                     // Validasi tipe file
                     var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-                    if (!allowedTypes.Contains(request.ProfileImage.ContentType))
+                    if (!allowedTypes.Contains(profileImage.ContentType))
                         return BadRequest(new { message = "Tipe file profil tidak didukung, gunakan JPG atau PNG" });
 
                     // Validasi ukuran file (maks 5MB)
-                    if (request.ProfileImage.Length > 5 * 1024 * 1024)
+                    if (profileImage.Length > 5 * 1024 * 1024)
                         return BadRequest(new { message = "Ukuran file profil tidak boleh lebih dari 5MB" });
 
                     // Konversi file ke byte array
                     using var ms = new MemoryStream();
-                    await request.ProfileImage.CopyToAsync(ms);
+                    await profileImage.CopyToAsync(ms);
                     profileImageData = ms.ToArray();
                 }
 
                 // Buat user baru
                 var user = new Users
                 {
-                    Email = request.Email,
-                    Name = request.Name,
-                    Password = request.Password, // Akan di-hash di RegisterUserWithIdentity
+                    Email = email,
+                    Name = name,
+                    Password = password, // Akan di-hash di RegisterUserWithIdentity
                     Profile = profileImageData, // Sekarang menggunakan byte[] untuk profile
                     KtpImage = ktpImageData,
                     SimImage = simImageData,
@@ -133,7 +169,12 @@ namespace Z_TRIP.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+                // Log the full exception details
+                Console.WriteLine($"Registration error: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+
+                // Return sanitized error message to client
+                return StatusCode(500, new { message = "Terjadi kesalahan saat memproses registrasi. Silakan coba lagi nanti." });
             }
         }
 
@@ -142,6 +183,12 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Check for null object
+                if (login == null)
+                {
+                    return BadRequest(new { message = "Data login tidak boleh kosong" });
+                }
+
                 // Debug logs
                 Console.WriteLine($"Login attempt: email='{login.Email}', password='{new string('*', login.Password?.Length ?? 0)}'");
 
@@ -149,9 +196,29 @@ namespace Z_TRIP.Controllers
                 login.Email = login.Email?.Trim();
                 login.Password = login.Password?.Trim();
 
-                if (string.IsNullOrEmpty(login.Email) || string.IsNullOrEmpty(login.Password))
+                // Detailed validation with specific error messages
+                if (string.IsNullOrEmpty(login.Email))
                 {
-                    return BadRequest(new { message = "Email dan password wajib diisi" });
+                    return BadRequest(new { message = "Email tidak boleh kosong" });
+                }
+
+                if (string.IsNullOrEmpty(login.Password))
+                {
+                    return BadRequest(new { message = "Password tidak boleh kosong" });
+                }
+
+                // Validate email format
+                try
+                {
+                    var addr = new System.Net.Mail.MailAddress(login.Email);
+                    if (addr.Address != login.Email)
+                    {
+                        return BadRequest(new { message = "Format email tidak valid" });
+                    }
+                }
+                catch
+                {
+                    return BadRequest(new { message = "Format email tidak valid" });
                 }
 
                 var ctx = new UsersContext(_constr);
@@ -196,19 +263,10 @@ namespace Z_TRIP.Controllers
             {
                 Console.WriteLine($"Login error: {ex.Message}");
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
-                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+
+                // Return sanitized error message to client
+                return StatusCode(500, new { message = "Terjadi kesalahan saat proses login. Silakan coba lagi nanti." });
             }
         }
-
-    }
-
-    public class RegisterRequest
-    {
-        public string Email { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-        public IFormFile? ProfileImage { get; set; } // Diganti dari string? Profile menjadi IFormFile? ProfileImage
-        public IFormFile? KtpImage { get; set; }
-        public IFormFile? SimImage { get; set; }
     }
 }

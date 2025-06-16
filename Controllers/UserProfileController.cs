@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Z_TRIP.Models;
 using Z_TRIP.Helpers;
 using Z_TRIP.Exceptions;
+using Z_TRIP.Models.Contexts;
 
 
 namespace Z_TRIP.Controllers
@@ -70,6 +71,18 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Add null check for request
+                if (request == null)
+                    return BadRequest(new { message = "Data profil tidak boleh kosong" });
+
+                // Add validation for name if provided
+                if (request.Name != null && string.IsNullOrWhiteSpace(request.Name))
+                    return BadRequest(new { message = "Nama tidak boleh kosong" });
+
+                // Add validation for name length if provided
+                if (request.Name != null && request.Name.Length > 100)
+                    return BadRequest(new { message = "Nama terlalu panjang, maksimal 100 karakter" });
+
                 // Ambil user id dari claim
                 var userIdClaim = User.FindFirst("userId")?.Value;
 
@@ -127,58 +140,79 @@ namespace Z_TRIP.Controllers
         [HttpPost("upload-ktp")]
         public async Task<IActionResult> UploadKtp(IFormFile file)
         {
-            if (file == null || file.Length == 0)
-                return BadRequest(new { message = "File tidak boleh kosong" });
-
-            // Validasi tipe file
-            var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-            if (!allowedTypes.Contains(file.ContentType))
-                return BadRequest(new { message = "Tipe file tidak didukung, gunakan JPG atau PNG" });
-
-            // Validasi ukuran file (maks 5MB)
-            if (file.Length > 5 * 1024 * 1024)
-                return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
-
             try
             {
-                // Ambil user id dari claim
-                var userIdClaim = User.FindFirst("userId")?.Value;
+                if (file == null || file.Length == 0)
+                    return BadRequest(new { message = "File tidak boleh kosong" });
 
-                if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
-                    return Unauthorized(new { message = "User tidak valid" });
+                // Validasi nama file
+                if (string.IsNullOrEmpty(file.FileName))
+                    return BadRequest(new { message = "Nama file tidak valid" });
 
-                // Cek status verifikasi
-                var ctx = new UsersContext(_constr);
-                var user = ctx.GetUserById(userId);
+                // Validate file extension
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (string.IsNullOrEmpty(extension) || !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
+                    return BadRequest(new { message = "Format file harus jpg, jpeg, atau png" });
 
-                if (user == null)
-                    return NotFound(new { message = "User tidak ditemukan" });
+                // Validasi tipe file
+                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
+                if (!allowedTypes.Contains(file.ContentType))
+                    return BadRequest(new { message = "Tipe file tidak didukung, gunakan JPG atau PNG" });
 
-                // VALIDASI: Jika sudah terverifikasi, tidak boleh upload ulang
-                if (user.IsVerified)
-                    return BadRequest(new
-                    {
-                        message = "Dokumen KTP tidak dapat diubah karena akun Anda sudah diverifikasi",
-                        isVerified = true
-                    });
+                // Validasi ukuran file (maks 5MB)
+                if (file.Length > 5 * 1024 * 1024)
+                    return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
 
-                // Konversi file ke byte array
-                byte[] imageData;
-                using (var ms = new MemoryStream())
+                // Validate minimum file size (avoid empty files)
+                if (file.Length < 1024) // Minimum 1KB
+                    return BadRequest(new { message = "File terlalu kecil, mungkin korup atau tidak lengkap" });
+
+                // Rest of your existing code
+                try
                 {
-                    await file.CopyToAsync(ms);
-                    imageData = ms.ToArray();
-                }
+                    // Ambil user id dari claim
+                    var userIdClaim = User.FindFirst("userId")?.Value;
 
-                // Simpan ke database
-                if (ctx.UpdateKtpImage(userId, imageData))
-                    return Ok(new
+                    if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
+                        return Unauthorized(new { message = "User tidak valid" });
+
+                    // Cek status verifikasi
+                    var ctx = new UsersContext(_constr);
+                    var user = ctx.GetUserById(userId);
+
+                    if (user == null)
+                        return NotFound(new { message = "User tidak ditemukan" });
+
+                    // VALIDASI: Jika sudah terverifikasi, tidak boleh upload ulang
+                    if (user.IsVerified)
+                        return BadRequest(new
+                        {
+                            message = "Dokumen KTP tidak dapat diubah karena akun Anda sudah diverifikasi",
+                            isVerified = true
+                        });
+
+                    // Konversi file ke byte array
+                    byte[] imageData;
+                    using (var ms = new MemoryStream())
                     {
-                        message = "KTP berhasil diupload",
-                        is_verified = user.IsVerified // Tambahkan status verifikasi
-                    });
+                        await file.CopyToAsync(ms);
+                        imageData = ms.ToArray();
+                    }
 
-                return StatusCode(500, new { message = "Gagal mengupload KTP" });
+                    // Simpan ke database
+                    if (ctx.UpdateKtpImage(userId, imageData))
+                        return Ok(new
+                        {
+                            message = "KTP berhasil diupload",
+                            is_verified = user.IsVerified // Tambahkan status verifikasi
+                        });
+
+                    return StatusCode(500, new { message = "Gagal mengupload KTP" });
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, new { message = $"Error: {ex.Message}" });
+                }
             }
             catch (Exception ex)
             {
@@ -190,58 +224,79 @@ namespace Z_TRIP.Controllers
         [HttpPost("upload-sim")]
         public async Task<IActionResult> UploadSim(IFormFile file)
         {
-            if (file == null || file.Length == 0)
-                return BadRequest(new { message = "File tidak boleh kosong" });
-
-            // Validasi tipe file
-            var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-            if (!allowedTypes.Contains(file.ContentType))
-                return BadRequest(new { message = "Tipe file tidak didukung, gunakan JPG atau PNG" });
-
-            // Validasi ukuran file (maks 5MB)
-            if (file.Length > 5 * 1024 * 1024)
-                return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
-
             try
             {
-                // Ambil user id dari claim
-                var userIdClaim = User.FindFirst("userId")?.Value;
+                if (file == null || file.Length == 0)
+                    return BadRequest(new { message = "File tidak boleh kosong" });
 
-                if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
-                    return Unauthorized(new { message = "User tidak valid" });
+                // Validasi nama file
+                if (string.IsNullOrEmpty(file.FileName))
+                    return BadRequest(new { message = "Nama file tidak valid" });
 
-                // Cek status verifikasi
-                var ctx = new UsersContext(_constr);
-                var user = ctx.GetUserById(userId);
+                // Validate file extension
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (string.IsNullOrEmpty(extension) || !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
+                    return BadRequest(new { message = "Format file harus jpg, jpeg, atau png" });
 
-                if (user == null)
-                    return NotFound(new { message = "User tidak ditemukan" });
+                // Validasi tipe file
+                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
+                if (!allowedTypes.Contains(file.ContentType))
+                    return BadRequest(new { message = "Tipe file tidak didukung, gunakan JPG atau PNG" });
 
-                // VALIDASI: Jika sudah terverifikasi, tidak boleh upload ulang
-                if (user.IsVerified)
-                    return BadRequest(new
-                    {
-                        message = "Dokumen SIM tidak dapat diubah karena akun Anda sudah diverifikasi",
-                        isVerified = true
-                    });
+                // Validasi ukuran file (maks 5MB)
+                if (file.Length > 5 * 1024 * 1024)
+                    return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
 
-                // Konversi file ke byte array
-                byte[] imageData;
-                using (var ms = new MemoryStream())
+                // Validate minimum file size (avoid empty files)
+                if (file.Length < 1024) // Minimum 1KB
+                    return BadRequest(new { message = "File terlalu kecil, mungkin korup atau tidak lengkap" });
+
+                // Rest of your existing code
+                try
                 {
-                    await file.CopyToAsync(ms);
-                    imageData = ms.ToArray();
-                }
+                    // Ambil user id dari claim
+                    var userIdClaim = User.FindFirst("userId")?.Value;
 
-                // Simpan ke database
-                if (ctx.UpdateSimImage(userId, imageData))
-                    return Ok(new
+                    if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
+                        return Unauthorized(new { message = "User tidak valid" });
+
+                    // Cek status verifikasi
+                    var ctx = new UsersContext(_constr);
+                    var user = ctx.GetUserById(userId);
+
+                    if (user == null)
+                        return NotFound(new { message = "User tidak ditemukan" });
+
+                    // VALIDASI: Jika sudah terverifikasi, tidak boleh upload ulang
+                    if (user.IsVerified)
+                        return BadRequest(new
+                        {
+                            message = "Dokumen SIM tidak dapat diubah karena akun Anda sudah diverifikasi",
+                            isVerified = true
+                        });
+
+                    // Konversi file ke byte array
+                    byte[] imageData;
+                    using (var ms = new MemoryStream())
                     {
-                        message = "SIM berhasil diupload",
-                        is_verified = user.IsVerified // Tambahkan status verifikasi
-                    });
+                        await file.CopyToAsync(ms);
+                        imageData = ms.ToArray();
+                    }
 
-                return StatusCode(500, new { message = "Gagal mengupload SIM" });
+                    // Simpan ke database
+                    if (ctx.UpdateSimImage(userId, imageData))
+                        return Ok(new
+                        {
+                            message = "SIM berhasil diupload",
+                            is_verified = user.IsVerified // Tambahkan status verifikasi
+                        });
+
+                    return StatusCode(500, new { message = "Gagal mengupload SIM" });
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, new { message = $"Error: {ex.Message}" });
+                }
             }
             catch (Exception ex)
             {
@@ -259,6 +314,15 @@ namespace Z_TRIP.Controllers
                 if (file == null || file.Length == 0)
                     return BadRequest(new { message = "File tidak boleh kosong" });
 
+                // Validasi nama file
+                if (string.IsNullOrEmpty(file.FileName))
+                    return BadRequest(new { message = "Nama file tidak valid" });
+
+                // Validate file extension
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (string.IsNullOrEmpty(extension) || !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
+                    return BadRequest(new { message = "Format file harus jpg, jpeg, atau png" });
+
                 // Validasi tipe file
                 var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
                 if (!allowedTypes.Contains(file.ContentType))
@@ -268,35 +332,47 @@ namespace Z_TRIP.Controllers
                 if (file.Length > 5 * 1024 * 1024)
                     return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
 
-                // Ambil user id dari claim
-                var userIdClaim = User.FindFirst("userId")?.Value;
+                // Validate minimum file size (avoid empty files)
+                if (file.Length < 1024) // Minimum 1KB
+                    return BadRequest(new { message = "File terlalu kecil, mungkin korup atau tidak lengkap" });
 
-                if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
-                    return Unauthorized(new { message = "User tidak valid" });
-
-                // Konversi ke byte array
-                byte[] imageData;
-                using (var ms = new MemoryStream())
+                // Rest of your existing code
+                try
                 {
-                    await file.CopyToAsync(ms);
-                    imageData = ms.ToArray();
-                }
+                    // Ambil user id dari claim
+                    var userIdClaim = User.FindFirst("userId")?.Value;
 
-                // Update di database
-                var ctx = new UsersContext(_constr);
-                bool success = ctx.UpdateProfileImage(userId, imageData);
+                    if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
+                        return Unauthorized(new { message = "User tidak valid" });
 
-                if (success)
-                {
-                    var user = ctx.GetUserById(userId); // Get updated user info
-                    return Ok(new
+                    // Konversi ke byte array
+                    byte[] imageData;
+                    using (var ms = new MemoryStream())
                     {
-                        message = "Foto profil berhasil diupload",
-                        is_verified = user?.IsVerified ?? false // Tambahkan status verifikasi
-                    });
-                }
+                        await file.CopyToAsync(ms);
+                        imageData = ms.ToArray();
+                    }
 
-                return StatusCode(500, new { message = "Gagal menyimpan foto profil" });
+                    // Update di database
+                    var ctx = new UsersContext(_constr);
+                    bool success = ctx.UpdateProfileImage(userId, imageData);
+
+                    if (success)
+                    {
+                        var user = ctx.GetUserById(userId); // Get updated user info
+                        return Ok(new
+                        {
+                            message = "Foto profil berhasil diupload",
+                            is_verified = user?.IsVerified ?? false // Tambahkan status verifikasi
+                        });
+                    }
+
+                    return StatusCode(500, new { message = "Gagal menyimpan foto profil" });
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, new { message = $"Error: {ex.Message}" });
+                }
             }
             catch (Exception ex)
             {
@@ -307,37 +383,67 @@ namespace Z_TRIP.Controllers
         [HttpGet("ktp")]
         public IActionResult GetKtpImage()
         {
-            // Ambil user id dari claim
-            var userIdClaim = User.FindFirst("user_id")?.Value;
+            try
+            {
+                // Ambil user id dari claim
+                var userIdClaim = User.FindFirst("user_id")?.Value;
 
-            if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
-                return Unauthorized(new { message = "User tidak valid" });
+                if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
+                    return Unauthorized(new { message = "User tidak valid" });
 
-            var ctx = new UsersContext(_constr);
-            var user = ctx.GetUserById(userId);
+                // Additional validation for userId
+                if (userId <= 0)
+                    return BadRequest(new { message = "ID user tidak valid" });
 
-            if (user == null || user.KtpImage == null || user.KtpImage.Length == 0)
-                return NotFound(new { message = "KTP tidak ditemukan" });
+                var ctx = new UsersContext(_constr);
+                var user = ctx.GetUserById(userId);
 
-            return File(user.KtpImage, "image/jpeg");
+                if (user == null)
+                    return NotFound(new { message = "User tidak ditemukan" });
+
+                if (user.KtpImage == null || user.KtpImage.Length == 0)
+                    return NotFound(new { message = "KTP tidak ditemukan" });
+
+                return File(user.KtpImage, "image/jpeg");
+            }
+            catch (Exception ex)
+            {
+                // Add exception logging here if needed
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
         }
 
         [HttpGet("sim")]
         public IActionResult GetSimImage()
         {
-            // Ambil user id dari claim
-            var userIdClaim = User.FindFirst("user_id")?.Value;
+            try
+            {
+                // Ambil user id dari claim
+                var userIdClaim = User.FindFirst("user_id")?.Value;
 
-            if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
-                return Unauthorized(new { message = "User tidak valid" });
+                if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
+                    return Unauthorized(new { message = "User tidak valid" });
 
-            var ctx = new UsersContext(_constr);
-            var user = ctx.GetUserById(userId);
+                // Additional validation for userId
+                if (userId <= 0)
+                    return BadRequest(new { message = "ID user tidak valid" });
 
-            if (user == null || user.SimImage == null || user.SimImage.Length == 0)
-                return NotFound(new { message = "SIM tidak ditemukan" });
+                var ctx = new UsersContext(_constr);
+                var user = ctx.GetUserById(userId);
 
-            return File(user.SimImage, "image/jpeg");
+                if (user == null)
+                    return NotFound(new { message = "User tidak ditemukan" });
+
+                if (user.SimImage == null || user.SimImage.Length == 0)
+                    return NotFound(new { message = "SIM tidak ditemukan" });
+
+                return File(user.SimImage, "image/jpeg");
+            }
+            catch (Exception ex)
+            {
+                // Add exception logging here if needed
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
         }
 
         // Get profile image - mirip dengan KTP/SIM

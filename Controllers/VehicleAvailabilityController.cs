@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Z_TRIP.Models;
 using Z_TRIP.Exceptions;
+using Z_TRIP.Models.Contexts;
 
 
 namespace Z_TRIP.Controllers
@@ -27,6 +28,12 @@ namespace Z_TRIP.Controllers
                 return defaultDate;
             }
 
+            // Add validation that string contains only digits
+            if (!dateStr.All(char.IsDigit))
+            {
+                throw new ValidationException($"Parameter {paramName} harus berisi angka saja");
+            }
+
             if (dateStr.Length != 8 || !DateTime.TryParseExact(
                 dateStr,
                 "yyyyMMdd",
@@ -37,12 +44,22 @@ namespace Z_TRIP.Controllers
                 throw new ValidationException($"Format {paramName} harus YYYYMMDD");
             }
 
+            // Add validation for reasonable date range (e.g., not in distant past or future)
+            if (result.Year < 2020 || result.Year > 2050)
+            {
+                throw new ValidationException($"{paramName} berada di luar rentang tahun yang valid (2020-2050)");
+            }
+
             return result;
         }
 
         // Helper method untuk format tanggal ke YYYYMMDD
         private string FormatYYYYMMDD(DateTime date)
         {
+            // Handle edge case of DateTime.MinValue
+            if (date == DateTime.MinValue)
+                return "00000000";
+
             return date.ToString("yyyyMMdd");
         }
 
@@ -55,6 +72,18 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Add validation for unitCode
+                if (string.IsNullOrWhiteSpace(unitCode))
+                {
+                    throw new ValidationException("Kode unit kendaraan tidak boleh kosong");
+                }
+
+                // Validate maximum length
+                if (unitCode.Length > 50) // Adjust limit as needed
+                {
+                    throw new ValidationException("Kode unit kendaraan terlalu panjang");
+                }
+
                 // Validasi unitCode
                 var unitCtx = new VehicleUnitsContext(_constr);
                 var unit = unitCtx.GetVehicleUnitByCode(unitCode); // Perlu tambah method ini di VehicleUnitsContext
@@ -107,10 +136,15 @@ namespace Z_TRIP.Controllers
 
                 // Validasi rentang tanggal
                 if (end < start)
-                    throw new ValidationException("Tanggal akhir harus setelah tanggal awal");
+                    throw new ValidationException($"Tanggal akhir ({FormatYYYYMMDD(end)}) harus setelah tanggal awal ({FormatYYYYMMDD(start)})");
 
-                if ((end - start).TotalDays > 90)
-                    throw new ValidationException("Rentang tanggal maksimal 90 hari");
+                var daysDifference = (end - start).TotalDays;
+                if (daysDifference > 90)
+                    throw new ValidationException($"Rentang tanggal ({daysDifference:0} hari) melebihi batas maksimal 90 hari");
+
+                // Add minimum range validation
+                if (daysDifference < 0.5) // At least half a day
+                    throw new ValidationException("Rentang tanggal terlalu pendek, minimal 1 hari");
 
                 // Ambil semua booking yang overlap dengan rentang tanggal
                 var bookings = bookingCtx.GetBookingsByVehicleUnitAndDateRange(unit.Id, start, end);
@@ -181,11 +215,17 @@ namespace Z_TRIP.Controllers
         [HttpGet("{vehicleUnitId:int}")]
         public IActionResult GetVehicleAvailability(
             int vehicleUnitId,
-            [FromQuery] string? startDate, // Format: YYYYMMDD
-            [FromQuery] string? endDate)   // Format: YYYYMMDD
+            [FromQuery] string? startDate,
+            [FromQuery] string? endDate)
         {
             try
             {
+                // Add validation for vehicleUnitId
+                if (vehicleUnitId <= 0)
+                {
+                    throw new ValidationException("ID unit kendaraan tidak valid");
+                }
+
                 // Validasi vehicleUnitId
                 var unitCtx = new VehicleUnitsContext(_constr);
                 var unit = unitCtx.GetVehicleUnitById(vehicleUnitId);
@@ -235,10 +275,15 @@ namespace Z_TRIP.Controllers
 
                 // Validasi rentang tanggal
                 if (end < start)
-                    throw new ValidationException("Tanggal akhir harus setelah tanggal awal");
+                    throw new ValidationException($"Tanggal akhir ({FormatYYYYMMDD(end)}) harus setelah tanggal awal ({FormatYYYYMMDD(start)})");
 
-                if ((end - start).TotalDays > 90)
-                    throw new ValidationException("Rentang tanggal maksimal 90 hari");
+                var daysDifference = (end - start).TotalDays;
+                if (daysDifference > 90)
+                    throw new ValidationException($"Rentang tanggal ({daysDifference:0} hari) melebihi batas maksimal 90 hari");
+
+                // Add minimum range validation
+                if (daysDifference < 0.5) // At least half a day
+                    throw new ValidationException("Rentang tanggal terlalu pendek, minimal 1 hari");
 
                 // Sisanya sama seperti implementasi sebelumnya...
                 var bookingCtx = new BookingContext(_constr);
@@ -293,6 +338,25 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Check authentication (already handled by [Authorize], but add user ID validation)
+                var userIdClaim = User.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId) || userId <= 0)
+                {
+                    return Unauthorized(new { message = "User tidak valid" });
+                }
+
+                // Add validation for category if provided
+                if (!string.IsNullOrEmpty(category))
+                {
+                    // Check if it's a valid enum value
+                    if (!Enum.TryParse<vehicle_category_enum>(category, true, out _))
+                    {
+                        // List valid categories for better error message
+                        var validCategories = string.Join(", ", Enum.GetNames(typeof(vehicle_category_enum)));
+                        throw new ValidationException($"Kategori kendaraan tidak valid. Nilai yang diizinkan: {validCategories}");
+                    }
+                }
+
                 // Parse tanggal menggunakan helper method yang sudah ada
                 var start = ParseYYYYMMDD(startDate, DateTime.Today, "startDate");
                 var end = ParseYYYYMMDD(endDate, DateTime.Today.AddDays(30), "endDate");
@@ -302,10 +366,15 @@ namespace Z_TRIP.Controllers
 
                 // Validasi rentang tanggal
                 if (end < start)
-                    throw new ValidationException("Tanggal akhir harus setelah tanggal awal");
+                    throw new ValidationException($"Tanggal akhir ({FormatYYYYMMDD(end)}) harus setelah tanggal awal ({FormatYYYYMMDD(start)})");
 
-                if ((end - start).TotalDays > 90)
-                    throw new ValidationException("Rentang tanggal maksimal 90 hari");
+                var daysDifference = (end - start).TotalDays;
+                if (daysDifference > 90)
+                    throw new ValidationException($"Rentang tanggal ({daysDifference:0} hari) melebihi batas maksimal 90 hari");
+
+                // Add minimum range validation
+                if (daysDifference < 0.5) // At least half a day
+                    throw new ValidationException("Rentang tanggal terlalu pendek, minimal 1 hari");
 
                 var bookingCtx = new BookingContext(_constr);
                 var vehicleCtx = new VehicleContext(_constr);

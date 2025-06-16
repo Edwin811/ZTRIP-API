@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Z_TRIP.Helpers;
 using Npgsql;
 
-namespace Z_TRIP.Models
+namespace Z_TRIP.Models.Contexts
 {
     public class VehicleContext
     {

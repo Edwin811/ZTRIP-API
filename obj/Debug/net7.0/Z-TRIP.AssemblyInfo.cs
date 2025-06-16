@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Z-TRIP")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9f6d29cb13cb61cfbd0404be778307de450854a5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4283a5328449f31798a4630a04e03f091466592a")]
 [assembly: System.Reflection.AssemblyProductAttribute("Z-TRIP")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Z-TRIP")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -2,7 +2,7 @@ using System;
 using Npgsql;
 using Z_TRIP.Helpers;
 
-namespace Z_TRIP.Models
+namespace Z_TRIP.Models.Contexts
 {
     public class PasswordResetContext
     {

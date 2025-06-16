@@ -2,11 +2,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Z_TRIP.Models;
 using Z_TRIP.Exceptions;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Globalization;
-using System.ComponentModel;
+using Z_TRIP.Models.Contexts;
+using System.Text.Json;
 
 namespace Z_TRIP.Controllers
 {
@@ -53,6 +51,12 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Validate vehicle unit ID
+                if (vehicleUnitId <= 0)
+                {
+                    return BadRequest(new { message = "ID unit kendaraan tidak valid" });
+                }
+
                 var start = ParseYYYYMMDD(startDate, "startDate");
                 var end = ParseYYYYMMDD(endDate, "endDate");
 
@@ -151,18 +155,77 @@ namespace Z_TRIP.Controllers
 
         // POST: api/admin/vehicle-management/block-schedule
         [HttpPost("block-schedule")]
-        public IActionResult BlockSchedule([FromBody] ScheduleBlockRequest request)
+        public IActionResult BlockSchedule([FromBody] JsonElement requestBody)
         {
             try
             {
-                var startDate = ParseYYYYMMDD(request.StartDate, "StartDate").Date;
-                var endDate = ParseYYYYMMDD(request.EndDate, "EndDate").Date.AddDays(1).AddSeconds(-1);
+                // Check if request body is empty/null
+                if (requestBody.ValueKind == JsonValueKind.Undefined ||
+                    requestBody.ValueKind == JsonValueKind.Null)
+                {
+                    return BadRequest(new { message = "Request body tidak boleh kosong" });
+                }
 
-                if (startDate >= endDate)
-                    throw new ValidationException("Tanggal mulai harus sebelum tanggal selesai");
+                // Parse the JsonElement instead of using ScheduleBlockRequest class
+                if (!requestBody.TryGetProperty("vehicleUnitIds", out JsonElement vehicleUnitIdsElement) ||
+                    vehicleUnitIdsElement.ValueKind != JsonValueKind.Array)
+                {
+                    throw new ValidationException("vehicleUnitIds harus berupa array");
+                }
 
-                if (request.VehicleUnitIds == null || !request.VehicleUnitIds.Any())
+                // Extract vehicle unit IDs
+                var vehicleUnitIds = new List<int>();
+                foreach (JsonElement element in vehicleUnitIdsElement.EnumerateArray())
+                {
+                    if (element.TryGetInt32(out int unitId))
+                    {
+                        vehicleUnitIds.Add(unitId);
+                    }
+                }
+
+                if (vehicleUnitIds.Count == 0)
+                {
                     throw new ValidationException("Setidaknya satu ID unit kendaraan harus disediakan");
+                }
+
+                // Extract start date
+                string startDate = string.Empty;
+                if (requestBody.TryGetProperty("startDate", out JsonElement startDateElement) &&
+                    startDateElement.ValueKind == JsonValueKind.String)
+                {
+                    startDate = startDateElement.GetString() ?? string.Empty;
+                }
+                else
+                {
+                    throw new ValidationException("StartDate diperlukan (format: YYYYMMDD)");
+                }
+
+                // Extract end date
+                string endDate = string.Empty;
+                if (requestBody.TryGetProperty("endDate", out JsonElement endDateElement) &&
+                    endDateElement.ValueKind == JsonValueKind.String)
+                {
+                    endDate = endDateElement.GetString() ?? string.Empty;
+                }
+                else
+                {
+                    throw new ValidationException("EndDate diperlukan (format: YYYYMMDD)");
+                }
+
+                // Extract note (optional)
+                string note = "Kendaraan sedang dalam perbaikan"; // Default note
+                if (requestBody.TryGetProperty("note", out JsonElement noteElement) &&
+                    noteElement.ValueKind == JsonValueKind.String)
+                {
+                    note = noteElement.GetString() ?? note;
+                }
+
+                // Parse the dates
+                var startDateTime = ParseYYYYMMDD(startDate, "StartDate").Date;
+                var endDateTime = ParseYYYYMMDD(endDate, "EndDate").Date.AddDays(1).AddSeconds(-1);
+
+                if (startDateTime >= endDateTime)
+                    throw new ValidationException("Tanggal mulai harus sebelum tanggal selesai");
 
                 // Dapatkan ID admin dari token
                 var adminId = int.Parse(User.FindFirst("userId")?.Value ?? "0");
@@ -186,7 +249,7 @@ namespace Z_TRIP.Controllers
                 var failedUnitIds = new List<int>();
 
                 // Proses setiap unit kendaraan
-                foreach (var unitId in request.VehicleUnitIds)
+                foreach (var unitId in vehicleUnitIds)
                 {
                     // Validasi unit kendaraan
                     var unit = unitCtx.GetVehicleUnitById(unitId);
@@ -199,7 +262,7 @@ namespace Z_TRIP.Controllers
 
                     // Periksa apakah ada konflik jadwal
                     var conflictingBookings = bookingCtx.GetBookingsByVehicleUnitAndDateRange(
-                        unitId, startDate, endDate);
+                        unitId, startDateTime, endDateTime);
 
                     var activeConflicts = conflictingBookings
                         .Where(b => b.Status != booking_status_enum.rejected && b.Status != booking_status_enum.done)
@@ -251,10 +314,10 @@ namespace Z_TRIP.Controllers
                     {
                         UserId = adminId, // Admin yang memblokir
                         VehicleUnitId = unitId,
-                        StartDatetime = startDate, // Gunakan tanggal awal hari
-                        EndDatetime = endDate,     // Gunakan tanggal akhir hari
+                        StartDatetime = startDateTime, // Gunakan tanggal awal hari
+                        EndDatetime = endDateTime,     // Gunakan tanggal akhir hari
                         Status = booking_status_enum.approved, // Langsung approved karena admin yang membuat
-                        StatusNote = $"BLOCKED_BY_ADMIN: {request.Note ?? "Kendaraan sedang dalam perbaikan"}", // Tambahkan default note
+                        StatusNote = $"BLOCKED_BY_ADMIN: {note}", // Tambahkan note
                         TransactionId = txnId
                     };
 
@@ -271,8 +334,8 @@ namespace Z_TRIP.Controllers
                             Message = "Jadwal berhasil diblokir",
                             BlockedPeriod = new
                             {
-                                StartDate = FormatToYYYYMMDD(startDate),
-                                EndDate = FormatToYYYYMMDD(endDate)
+                                StartDate = FormatToYYYYMMDD(startDateTime),
+                                EndDate = FormatToYYYYMMDD(endDateTime)
                             }
                         });
                     }
@@ -315,6 +378,12 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Validate booking ID
+                if (bookingId <= 0)
+                {
+                    return BadRequest(new { message = "ID booking tidak valid" });
+                }
+
                 var bookingCtx = new BookingContext(_constr);
                 var booking = bookingCtx.GetBookingById(bookingId);
 
@@ -354,13 +423,66 @@ namespace Z_TRIP.Controllers
 
         // PUT: api/admin/vehicle-management/update-schedule/{bookingId}
         [HttpPut("update-schedule/{bookingId}")]
-        public IActionResult UpdateBlockedSchedule(int bookingId, [FromBody] UpdateScheduleRequest request)
+        public IActionResult UpdateBlockedSchedule(int bookingId, [FromBody] JsonElement requestBody)
         {
             try
             {
+                // Validate booking ID
+                if (bookingId <= 0)
+                {
+                    return BadRequest(new { message = "ID booking tidak valid" });
+                }
+
+                // Check if request body is empty
+                if (requestBody.ValueKind == JsonValueKind.Undefined ||
+                    requestBody.ValueKind == JsonValueKind.Null)
+                {
+                    return BadRequest(new { message = "Request body tidak boleh kosong" });
+                }
+
+                // Parse request body manually instead of using UpdateScheduleRequest
+                DateTime startDate;
+                DateTime endDate;
+                string? note = null;
+
+                // Extract StartDate
+                if (!requestBody.TryGetProperty("startDate", out JsonElement startDateElement) ||
+                    startDateElement.ValueKind != JsonValueKind.String)
+                {
+                    throw new ValidationException("StartDate diperlukan");
+                }
+
+                if (!DateTime.TryParse(startDateElement.GetString(), out startDate))
+                {
+                    throw new ValidationException("Format StartDate tidak valid");
+                }
+
+                // Extract EndDate
+                if (!requestBody.TryGetProperty("endDate", out JsonElement endDateElement) ||
+                    endDateElement.ValueKind != JsonValueKind.String)
+                {
+                    throw new ValidationException("EndDate diperlukan");
+                }
+
+                if (!DateTime.TryParse(endDateElement.GetString(), out endDate))
+                {
+                    throw new ValidationException("Format EndDate tidak valid");
+                }
+
+                // Extract Note (optional)
+                if (requestBody.TryGetProperty("note", out JsonElement noteElement) &&
+                    noteElement.ValueKind == JsonValueKind.String)
+                {
+                    note = noteElement.GetString();
+                }
+                else
+                {
+                    note = "Kendaraan sedang dalam perbaikan"; // Default note
+                }
+
                 // Standarisasi tanggal tanpa jam
-                var startDate = request.StartDate.Date;
-                var endDate = request.EndDate.Date.AddDays(1).AddSeconds(-1); // Hingga akhir hari
+                startDate = startDate.Date;
+                endDate = endDate.Date.AddDays(1).AddSeconds(-1); // Hingga akhir hari
 
                 if (startDate >= endDate)
                     throw new ValidationException("Tanggal mulai harus sebelum tanggal selesai");
@@ -397,12 +519,12 @@ namespace Z_TRIP.Controllers
                 if (isBlockedByAdmin)
                 {
                     // Jika ini adalah blocked schedule, update note
-                    booking.StatusNote = $"BLOCKED_BY_ADMIN: {request.Note ?? "Kendaraan sedang dalam perbaikan"}";
+                    booking.StatusNote = $"BLOCKED_BY_ADMIN: {note}";
                 }
-                else if (request.Note != null)
+                else if (note != null)
                 {
                     // Jika booking normal, tambahkan note tanpa menghapus informasi sebelumnya
-                    booking.StatusNote = request.Note;
+                    booking.StatusNote = note;
                 }
 
                 bool updated = bookingCtx.UpdateBooking(bookingId, booking);
@@ -439,6 +561,18 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Add parameter validation
+                if (startDate.HasValue && endDate.HasValue && startDate > endDate)
+                {
+                    return BadRequest(new { message = "Tanggal mulai tidak boleh setelah tanggal selesai" });
+                }
+
+                if (vehicleUnitId.HasValue && vehicleUnitId <= 0)
+                {
+                    return BadRequest(new { message = "ID unit kendaraan harus lebih besar dari 0" });
+                }
+
+                // Rest of your existing code remains unchanged
                 var bookingCtx = new BookingContext(_constr);
                 var unitCtx = new VehicleUnitsContext(_constr);
                 var vehicleCtx = new VehicleContext(_constr);
@@ -492,6 +626,12 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Validate vehicle unit ID if provided
+                if (vehicleUnitId.HasValue && vehicleUnitId <= 0)
+                {
+                    return BadRequest(new { message = "ID unit kendaraan harus lebih besar dari 0" });
+                }
+
                 var bookingCtx = new BookingContext(_constr);
                 var unitCtx = new VehicleUnitsContext(_constr);
                 var vehicleCtx = new VehicleContext(_constr);
@@ -546,6 +686,13 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Add parameter validation
+                if (startDate.HasValue && endDate.HasValue && startDate > endDate)
+                {
+                    return BadRequest(new { message = "Tanggal mulai tidak boleh setelah tanggal selesai" });
+                }
+
+                // Rest of your existing code remains unchanged
                 var bookingCtx = new BookingContext(_constr);
 
                 // Parameter opsional, tidak perlu validasi tanggal
@@ -581,33 +728,6 @@ namespace Z_TRIP.Controllers
                 return StatusCode(500, new { message = $"Error: {ex.Message}" });
             }
         }
-
-        // Helper method untuk mendapatkan nama pengguna
-        private string GetUserName(int userId)
-        {
-            var userCtx = new UsersContext(_constr);
-            var user = userCtx.GetUserById(userId);
-            return user?.Name ?? "Unknown User";
-        }
-    }
-
-    public class ScheduleBlockRequest
-    {
-        public List<int> VehicleUnitIds { get; set; } = new List<int>();
-        public string StartDate { get; set; } = string.Empty; // Format YYYYMMDD
-        public string EndDate { get; set; } = string.Empty;   // Format YYYYMMDD
-
-        [DefaultValue("Kendaraan sedang dalam perbaikan")]
-        public string? Note { get; set; } = "Kendaraan sedang dalam perbaikan"; // Default note
-    }
-
-    public class UpdateScheduleRequest
-    {
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
-
-        [DefaultValue("Kendaraan sedang dalam perbaikan")]
-        public string? Note { get; set; }
     }
 
     public static class ValidationExtensions
