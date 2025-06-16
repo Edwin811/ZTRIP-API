@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Z_TRIP.Exceptions;
 using System.ComponentModel.DataAnnotations;  // Untuk validasi
+using System.Text.Json.Serialization; // Untuk [JsonIgnore]
 
 namespace Z_TRIP.Controllers
 {
@@ -22,7 +23,7 @@ namespace Z_TRIP.Controllers
 
         public string? Description { get; set; }
 
-        // Tambahkan properti untuk menerima file gambar
+        [JsonIgnore] // <-- ini akan menyembunyikan dari dokumentasi Swagger dan serialisasi/deserialisasi JSON
         public IFormFile? Image { get; set; }
     }
 
@@ -115,29 +116,6 @@ namespace Z_TRIP.Controllers
             return File(unit.VehicleImage, "image/jpeg");
         }
 
-        // GET api/vehicle-units/vehicle/{vehicleId}
-        [HttpGet("vehicle/{vehicleId}")]
-        public IActionResult GetByVehicleId(int vehicleId)
-        {
-            var context = new VehicleUnitsContext(_constr);
-            var units = context.GetVehicleUnitsByVehicleId(vehicleId);
-
-            // Tidak perlu mengirim binary data dalam respon list
-            var result = units.Select(u => new
-            {
-                u.Id,
-                u.Code,
-                u.VehicleId,
-                u.PricePerDay,
-                u.Description,
-                HasImage = u.VehicleImage != null && u.VehicleImage.Length > 0,
-                u.CreatedAt,
-                u.UpdatedAt
-            }).ToList();
-
-            return Ok(result);
-        }
-
         // POST api/vehicle-units - Perbarui untuk menggunakan VehicleUnitRequest
         [HttpPost]
         [Authorize(Policy = "AdminOnly")]
@@ -212,6 +190,7 @@ namespace Z_TRIP.Controllers
                     VehicleId = request.VehicleId,
                     PricePerDay = request.PricePerDay,
                     Description = request.Description
+                    // Tidak perlu mengubah/mengisi VehicleImage di sini!
                 };
 
                 var context = new VehicleUnitsContext(_constr);

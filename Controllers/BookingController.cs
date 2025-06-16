@@ -579,16 +579,35 @@ namespace Z_TRIP.Controllers
                 bookingCtx.UpdateStatusBooking(id, booking_status_enum.rejected.ToString());
                 bookingCtx.UpdateStatusNote(id, $"Booking ditolak: {request.Reason}");
 
-                // Perbarui status transaksi menjadi unpaid agar customer dapat mengupload bukti baru jika diinginkan
-                if (booking.TransactionId.HasValue)
+                // Perbarui status transaksi jika diminta oleh admin
+                var updatedPaymentStatus = "";
+                if (booking.TransactionId.HasValue && !string.IsNullOrEmpty(request.PaymentStatus))
                 {
+                    // Validasi status pembayaran yang diminta
+                    if (!Enum.TryParse<payment_status_enum>(request.PaymentStatus, true, out var paymentStatus))
+                        return BadRequest(new { message = "Status pembayaran tidak valid" });
+
                     var txnCtx = new TransaksiContext(_constr);
                     var transaksi = txnCtx.GetTransaksiById(booking.TransactionId.Value);
 
-                    if (transaksi != null && transaksi.PaymentStatus == payment_status_enum.pending)
+                    if (transaksi != null)
                     {
-                        // Kembalikan ke unpaid agar bisa upload ulang
-                        txnCtx.UpdateTransaksiStatus(booking.TransactionId.Value, payment_status_enum.unpaid.ToString());
+                        // Pemeriksaan logis status pembayaran
+                        if (paymentStatus == payment_status_enum.paid && transaksi.PaymentImage == null)
+                        {
+                            return BadRequest(new
+                            {
+                                message = "Tidak dapat mengubah status menjadi 'paid' karena belum ada bukti pembayaran"
+                            });
+                        }
+
+                        // Update status transaksi
+                        txnCtx.UpdateTransaksiStatus(booking.TransactionId.Value, paymentStatus.ToString());
+                        updatedPaymentStatus = paymentStatus.ToString();
+
+                        // Tambahkan catatan status pembayaran ke booking
+                        string paymentNote = GetPaymentStatusNote(paymentStatus);
+                        bookingCtx.UpdateStatusNote(id, $"Booking ditolak: {request.Reason}. {paymentNote}");
                     }
                 }
 
@@ -597,7 +616,12 @@ namespace Z_TRIP.Controllers
                     message = "Booking berhasil ditolak",
                     bookingId = id,
                     status = "rejected",
-                    reason = request.Reason
+                    reason = request.Reason,
+                    paymentStatus = string.IsNullOrEmpty(updatedPaymentStatus) ?
+                        (booking.TransactionId.HasValue ?
+                            new TransaksiContext(_constr).GetTransaksiById(booking.TransactionId.Value)?.PaymentStatus.ToString() :
+                            "tidak ada transaksi") :
+                        updatedPaymentStatus,
                 });
             }
             catch (Exception ex)
@@ -606,9 +630,26 @@ namespace Z_TRIP.Controllers
             }
         }
 
+        // Helper method untuk menentukan catatan status pembayaran
+        private string GetPaymentStatusNote(payment_status_enum paymentStatus)
+        {
+            return paymentStatus switch
+            {
+                payment_status_enum.unpaid => "Status pembayaran diatur ke 'unpaid'. Customer perlu mengupload bukti pembayaran yang valid.",
+                payment_status_enum.pending => "Status pembayaran diatur ke 'pending'. Menunggu verifikasi bukti pembayaran.",
+                payment_status_enum.paid => "Status pembayaran diatur ke 'paid'. Pembayaran telah diverifikasi tetapi booking tetap ditolak.",
+                _ => string.Empty
+            };
+        }
+
+        // Helper method untuk memberikan instruksi selanjutnya
         public class RejectBookingRequest
         {
             public string Reason { get; set; } = string.Empty;
+
+            // Tambahkan field untuk status pembayaran
+            // Null berarti tidak mengubah status pembayaran
+            public string? PaymentStatus { get; set; }
         }
 
         public class BookingResponse

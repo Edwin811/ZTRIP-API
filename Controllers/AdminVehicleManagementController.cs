@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Globalization;
+using System.ComponentModel;
 
 namespace Z_TRIP.Controllers
 {
@@ -253,7 +254,7 @@ namespace Z_TRIP.Controllers
                         StartDatetime = startDate, // Gunakan tanggal awal hari
                         EndDatetime = endDate,     // Gunakan tanggal akhir hari
                         Status = booking_status_enum.approved, // Langsung approved karena admin yang membuat
-                        StatusNote = $"BLOCKED_BY_ADMIN: {request.Note ?? "No reason provided"}", // Tanda khusus
+                        StatusNote = $"BLOCKED_BY_ADMIN: {request.Note ?? "Kendaraan sedang dalam perbaikan"}", // Tambahkan default note
                         TransactionId = txnId
                     };
 
@@ -396,7 +397,7 @@ namespace Z_TRIP.Controllers
                 if (isBlockedByAdmin)
                 {
                     // Jika ini adalah blocked schedule, update note
-                    booking.StatusNote = $"BLOCKED_BY_ADMIN: {request.Note ?? "No reason provided"}";
+                    booking.StatusNote = $"BLOCKED_BY_ADMIN: {request.Note ?? "Kendaraan sedang dalam perbaikan"}";
                 }
                 else if (request.Note != null)
                 {
@@ -434,34 +435,146 @@ namespace Z_TRIP.Controllers
 
         // GET: api/admin/vehicle-management/blocked-schedules
         [HttpGet("blocked-schedules")]
-        public IActionResult GetBlockedSchedules([FromQuery] string? startDate, [FromQuery] string? endDate)
+        public IActionResult GetBlockedSchedules([FromQuery] DateTime? startDate = null, [FromQuery] DateTime? endDate = null, [FromQuery] int? vehicleUnitId = null)
         {
             try
             {
-                var start = ParseYYYYMMDD(startDate ?? DateTime.Today.ToString(DATE_FORMAT), "startDate");
-                var end = ParseYYYYMMDD(endDate ?? DateTime.Today.AddDays(30).ToString(DATE_FORMAT), "endDate");
-
-                if (start >= end)
-                    throw new ValidationException("Tanggal mulai harus sebelum tanggal selesai");
-
                 var bookingCtx = new BookingContext(_constr);
-                var blockedSchedules = bookingCtx.GetBlockedSchedules(start, end);
+                var unitCtx = new VehicleUnitsContext(_constr);
+                var vehicleCtx = new VehicleContext(_constr);
 
-                var result = blockedSchedules.Select(b => new
+                // Semua parameter opsional, tidak perlu validasi tanggal
+                var blockedSchedules = bookingCtx.GetBlockedSchedules(startDate, endDate, vehicleUnitId);
+
+                var result = blockedSchedules.Select(b =>
                 {
-                    BlockId = b.Id,
-                    VehicleUnitId = b.VehicleUnitId,
-                    StartDate = FormatToYYYYMMDD(b.StartDatetime),
-                    EndDate = FormatToYYYYMMDD(b.EndDatetime),
-                    Note = b.StatusNote?.Replace("BLOCKED_BY_ADMIN: ", ""),
-                    CreatedAt = FormatToYYYYMMDD(b.CreatedAt)
+                    // Get unit info
+                    var unit = unitCtx.GetVehicleUnitById(b.VehicleUnitId);
+                    var vehicleName = "Unknown";
+                    var vehicleMerk = "Unknown";
+
+                    if (unit != null)
+                    {
+                        var vehicle = vehicleCtx.GetVehicleById(unit.VehicleId);
+                        if (vehicle != null)
+                        {
+                            vehicleName = vehicle.Name;
+                            vehicleMerk = vehicle.Merk;
+                        }
+                    }
+
+                    return new
+                    {
+                        BlockId = b.Id,
+                        VehicleUnitId = b.VehicleUnitId,
+                        VehicleUnitCode = unit?.Code,
+                        VehicleName = vehicleName,
+                        VehicleMerk = vehicleMerk,
+                        StartDate = FormatToYYYYMMDD(b.StartDatetime),
+                        EndDate = FormatToYYYYMMDD(b.EndDatetime),
+                        Note = b.StatusNote?.Replace("BLOCKED_BY_ADMIN: ", ""),
+                        CreatedAt = FormatToYYYYMMDD(b.CreatedAt),
+                        UpdatedAt = FormatToYYYYMMDD(b.UpdatedAt)
+                    };
                 }).ToList();
 
                 return Ok(result);
             }
-            catch (ValidationException ex)
+            catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
+        }
+
+        // GET: api/admin/vehicle-management/all-blocked-schedules
+        [HttpGet("all-blocked-schedules")]
+        public IActionResult GetAllBlockedSchedules([FromQuery] int? vehicleUnitId = null)
+        {
+            try
+            {
+                var bookingCtx = new BookingContext(_constr);
+                var unitCtx = new VehicleUnitsContext(_constr);
+                var vehicleCtx = new VehicleContext(_constr);
+
+                // Dapatkan semua jadwal yang diblokir tanpa batasan tanggal
+                var blockedSchedules = bookingCtx.GetAllBlockedSchedules(vehicleUnitId);
+
+                // Kumpulkan informasi unit kendaraan untuk menampilkan detail lengkap
+                var result = blockedSchedules.Select(b =>
+                {
+                    // Get unit info
+                    var unit = unitCtx.GetVehicleUnitById(b.VehicleUnitId);
+                    var vehicleName = "Unknown";
+                    var vehicleMerk = "Unknown";
+
+                    if (unit != null)
+                    {
+                        var vehicle = vehicleCtx.GetVehicleById(unit.VehicleId);
+                        if (vehicle != null)
+                        {
+                            vehicleName = vehicle.Name;
+                            vehicleMerk = vehicle.Merk;
+                        }
+                    }
+
+                    return new
+                    {
+                        BlockId = b.Id,
+                        VehicleUnitId = b.VehicleUnitId,
+                        VehicleUnitCode = unit?.Code,
+                        VehicleName = vehicleName,
+                        VehicleMerk = vehicleMerk,
+                        StartDate = FormatToYYYYMMDD(b.StartDatetime),
+                        EndDate = FormatToYYYYMMDD(b.EndDatetime),
+                        Note = b.StatusNote?.Replace("BLOCKED_BY_ADMIN: ", ""),
+                        CreatedAt = FormatToYYYYMMDD(b.CreatedAt),
+                        UpdatedAt = FormatToYYYYMMDD(b.UpdatedAt)
+                    };
+                }).ToList();
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
+            }
+        }
+
+        // GET: api/admin/vehicle-management/all-blocked-dates
+        [HttpGet("all-blocked-dates")]
+        public IActionResult GetAllBlockedDates([FromQuery] DateTime? startDate = null, [FromQuery] DateTime? endDate = null)
+        {
+            try
+            {
+                var bookingCtx = new BookingContext(_constr);
+
+                // Parameter opsional, tidak perlu validasi tanggal
+                var blockedDates = bookingCtx.GetAllBlockedDates(startDate, endDate);
+
+                // Group berdasarkan tanggal untuk mengetahui semua unit yang diblokir pada tanggal tertentu
+                var groupedByDate = blockedDates
+                    .GroupBy(item => new
+                    {
+                        Date = item.Date.ToString("yyyyMMdd")
+                    })
+                    .Select(group => new
+                    {
+                        Date = group.Key.Date,
+                        VehicleUnits = group.Select(b => new
+                        {
+                            VehicleUnitId = b.VehicleUnitId,
+                            VehicleUnitCode = b.VehicleUnitCode,
+                            VehicleName = b.VehicleName,
+                            VehicleMerk = b.VehicleMerk,
+                            Note = b.Note,
+                            BookingId = b.BookingId
+                        }).ToList(),
+                        BlockedCount = group.Count()
+                    })
+                    .OrderBy(g => g.Date)
+                    .ToList();
+
+                return Ok(groupedByDate);
             }
             catch (Exception ex)
             {
@@ -483,13 +596,17 @@ namespace Z_TRIP.Controllers
         public List<int> VehicleUnitIds { get; set; } = new List<int>();
         public string StartDate { get; set; } = string.Empty; // Format YYYYMMDD
         public string EndDate { get; set; } = string.Empty;   // Format YYYYMMDD
-        public string? Note { get; set; }
+
+        [DefaultValue("Kendaraan sedang dalam perbaikan")]
+        public string? Note { get; set; } = "Kendaraan sedang dalam perbaikan"; // Default note
     }
 
     public class UpdateScheduleRequest
     {
         public DateTime StartDate { get; set; }
         public DateTime EndDate { get; set; }
+
+        [DefaultValue("Kendaraan sedang dalam perbaikan")]
         public string? Note { get; set; }
     }
 

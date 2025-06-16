@@ -26,49 +26,40 @@ namespace Z_TRIP.Controllers
         {
             try
             {
-                // Ambil user id dari claim
                 var userIdClaim = User.FindFirst("userId")?.Value;
-
                 if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
-                    throw new UnauthorizedAccessException("User tidak valid");
+                    return Unauthorized(new { message = "User tidak valid" });
 
                 var ctx = new UsersContext(_constr);
                 var user = ctx.GetUserById(userId);
 
                 if (user == null)
-                    throw new ResourceNotFoundException("User tidak ditemukan");
+                    return NotFound(new { message = "User tidak ditemukan" });
 
-                // Bersihkan data sensitif
-                user.Password = "";
-
-                // Jika ada image, set value untuk frontend
+                // Status upload image
                 var hasKtp = user.KtpImage != null && user.KtpImage.Length > 0;
                 var hasSim = user.SimImage != null && user.SimImage.Length > 0;
+                var hasProfile = user.Profile != null && user.Profile.Length > 0;
 
+                // Tampilkan semua data user dan status image (true/false)
                 return Ok(new
                 {
-                    user.Id,
-                    user.Email,
-                    user.Name,
-                    user.Profile,
-                    HasKtp = hasKtp,
-                    HasSim = hasSim,
-                    user.Role,
-                    user.CreatedAt,
-                    user.UpdatedAt
+                    id = user.Id,
+                    name = user.Name,
+                    email = user.Email,
+                    role = user.Role,
+                    isVerified = user.IsVerified,
+                    createdAt = user.CreatedAt,
+                    updatedAt = user.UpdatedAt,
+                    // Status image (true/false)
+                    hasKtp,
+                    hasSim,
+                    hasProfile
                 });
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Unauthorized(new { message = ex.Message });
-            }
-            catch (ResourceNotFoundException ex)
-            {
-                return NotFound(new { message = ex.Message });
             }
             catch (Exception ex)
             {
-                throw; // Middleware global akan menangani
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
             }
         }
 
@@ -106,6 +97,7 @@ namespace Z_TRIP.Controllers
                             user.Id,
                             user.Name,
                             user.Email,
+                            is_verified = user.IsVerified, // Tambahkan is_verified di sini
                             HasProfile = user.Profile != null && user.Profile.Length > 0,
                             HasKtp = user.KtpImage != null && user.KtpImage.Length > 0,
                             HasSim = user.SimImage != null && user.SimImage.Length > 0
@@ -131,6 +123,7 @@ namespace Z_TRIP.Controllers
             public string? Name { get; set; }
         }
 
+        // Perbaikan upload KTP: tambah validasi user verification
         [HttpPost("upload-ktp")]
         public async Task<IActionResult> UploadKtp(IFormFile file)
         {
@@ -154,6 +147,21 @@ namespace Z_TRIP.Controllers
                 if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
                     return Unauthorized(new { message = "User tidak valid" });
 
+                // Cek status verifikasi
+                var ctx = new UsersContext(_constr);
+                var user = ctx.GetUserById(userId);
+
+                if (user == null)
+                    return NotFound(new { message = "User tidak ditemukan" });
+
+                // VALIDASI: Jika sudah terverifikasi, tidak boleh upload ulang
+                if (user.IsVerified)
+                    return BadRequest(new
+                    {
+                        message = "Dokumen KTP tidak dapat diubah karena akun Anda sudah diverifikasi",
+                        isVerified = true
+                    });
+
                 // Konversi file ke byte array
                 byte[] imageData;
                 using (var ms = new MemoryStream())
@@ -163,9 +171,12 @@ namespace Z_TRIP.Controllers
                 }
 
                 // Simpan ke database
-                var ctx = new UsersContext(_constr);
                 if (ctx.UpdateKtpImage(userId, imageData))
-                    return Ok(new { message = "KTP berhasil diupload" });
+                    return Ok(new
+                    {
+                        message = "KTP berhasil diupload",
+                        is_verified = user.IsVerified // Tambahkan status verifikasi
+                    });
 
                 return StatusCode(500, new { message = "Gagal mengupload KTP" });
             }
@@ -175,6 +186,7 @@ namespace Z_TRIP.Controllers
             }
         }
 
+        // Perbaikan upload SIM: tambah validasi user verification
         [HttpPost("upload-sim")]
         public async Task<IActionResult> UploadSim(IFormFile file)
         {
@@ -198,6 +210,21 @@ namespace Z_TRIP.Controllers
                 if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
                     return Unauthorized(new { message = "User tidak valid" });
 
+                // Cek status verifikasi
+                var ctx = new UsersContext(_constr);
+                var user = ctx.GetUserById(userId);
+
+                if (user == null)
+                    return NotFound(new { message = "User tidak ditemukan" });
+
+                // VALIDASI: Jika sudah terverifikasi, tidak boleh upload ulang
+                if (user.IsVerified)
+                    return BadRequest(new
+                    {
+                        message = "Dokumen SIM tidak dapat diubah karena akun Anda sudah diverifikasi",
+                        isVerified = true
+                    });
+
                 // Konversi file ke byte array
                 byte[] imageData;
                 using (var ms = new MemoryStream())
@@ -207,9 +234,12 @@ namespace Z_TRIP.Controllers
                 }
 
                 // Simpan ke database
-                var ctx = new UsersContext(_constr);
                 if (ctx.UpdateSimImage(userId, imageData))
-                    return Ok(new { message = "SIM berhasil diupload" });
+                    return Ok(new
+                    {
+                        message = "SIM berhasil diupload",
+                        is_verified = user.IsVerified // Tambahkan status verifikasi
+                    });
 
                 return StatusCode(500, new { message = "Gagal mengupload SIM" });
             }
@@ -257,7 +287,14 @@ namespace Z_TRIP.Controllers
                 bool success = ctx.UpdateProfileImage(userId, imageData);
 
                 if (success)
-                    return Ok(new { message = "Foto profil berhasil diupload" });
+                {
+                    var user = ctx.GetUserById(userId); // Get updated user info
+                    return Ok(new
+                    {
+                        message = "Foto profil berhasil diupload",
+                        is_verified = user?.IsVerified ?? false // Tambahkan status verifikasi
+                    });
+                }
 
                 return StatusCode(500, new { message = "Gagal menyimpan foto profil" });
             }

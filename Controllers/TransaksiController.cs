@@ -152,31 +152,6 @@ namespace Z_TRIP.Controllers
             return File(transaksi.PaymentImage, "image/jpeg");
         }
 
-        // PATCH api/transaksi/{id}/status
-        [HttpPatch("{id}/status")]
-        [Authorize(Policy = "AdminOnly")]
-        public IActionResult UpdateStatus(int id, [FromBody] StatusUpdate statusUpdate)
-        {
-            if (string.IsNullOrEmpty(statusUpdate.Status))
-                return BadRequest(new { message = "Status tidak boleh kosong" });
-
-            // Validasi status
-            if (!Enum.TryParse<payment_status_enum>(statusUpdate.Status, true, out var newStatus))
-                return BadRequest(new { message = "Status tidak valid" });
-
-            var context = new TransaksiContext(_constr);
-            if (context.UpdateTransaksiStatus(id, statusUpdate.Status))
-            {
-                // Sinkronisasi status booking jika transaksi diupdate
-                SyncBookingStatus(id, newStatus);
-                return Ok(new { message = "Status transaksi berhasil diupdate" });
-            }
-            else
-            {
-                return NotFound(new { message = "Transaksi tidak ditemukan" });
-            }
-        }
-
         // POST api/transaksi/upload-payment/{id}
         [HttpPost("upload-payment/{id}")]
         [Authorize]
@@ -278,70 +253,6 @@ namespace Z_TRIP.Controllers
                 return StatusCode(500, new { message = $"Error: {ex.Message}" });
             }
         }
-
-        // GET api/transaksi/by-booking/{bookingId}
-        [HttpGet("by-booking/{bookingId}")]
-        [Authorize]
-        public IActionResult GetTransaksiByBookingId(int bookingId)
-        {
-            try
-            {
-                // Verifikasi akses - hanya admin atau pemilik booking
-                var userIdClaim = User.FindFirst("userId")?.Value;
-                if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
-                {
-                    return Unauthorized(new { message = "User tidak valid" });
-                }
-
-                bool isAdmin = User.IsInRole("Admin");
-
-                // Cek booking
-                var bookingCtx = new BookingContext(_constr);
-                var booking = bookingCtx.GetBookingById(bookingId);
-
-                if (booking == null)
-                    return NotFound(new { message = $"Booking dengan ID {bookingId} tidak ditemukan" });
-
-                // Hanya admin atau pemilik booking yang bisa melihat
-                if (!isAdmin && booking.UserId != userId)
-                    return Forbid();
-
-                // Cek transaksi
-                if (!booking.TransactionId.HasValue)
-                    return NotFound(new { message = "Booking ini tidak memiliki transaksi terkait" });
-
-                var context = new TransaksiContext(_constr);
-                var transaksi = context.GetTransaksiById(booking.TransactionId.Value);
-
-                if (transaksi == null)
-                    return NotFound(new { message = "Transaksi tidak ditemukan" });
-
-                // Perbaikan: Gunakan nama properti yang berbeda untuk ID booking dan ID transaksi
-                var result = new
-                {
-                    BookingId = booking.Id,
-                    TransaksiId = transaksi.Id, // Ganti nama properti untuk mencegah duplikasi
-                    booking.UserId,
-                    booking.VehicleUnitId,
-                    BookingStartDate = FormatYYYYMMDD(booking.StartDatetime),
-                    BookingEndDate = FormatYYYYMMDD(booking.EndDatetime),
-                    BookingStatus = booking.Status.ToString(),
-                    transaksi.Method,
-                    PaymentStatus = transaksi.PaymentStatus.ToString(),
-                    transaksi.Amount,
-                    HasPaymentImage = transaksi.PaymentImage != null && transaksi.PaymentImage.Length > 0,
-                    transaksi.CreatedAt,
-                    transaksi.UpdatedAt
-                };
-
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = $"Error: {ex.Message}" });
-            }
-        }
-
         // GET api/transaksi/unpaid
         [HttpGet("unpaid")]
         [Authorize]

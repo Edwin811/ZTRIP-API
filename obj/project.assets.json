@@ -1405,7 +1405,7 @@
       "code": "Undefined",
       "level": "Warning",
       "warningLevel": 1,
-      "message": "Problem reading the cache file /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/obj/project.nuget.cache : Found invalid data while decoding."
+      "message": "Problem reading the cache file /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/obj/project.nuget.cache : Operation timed out : '/Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/obj/project.nuget.cache'"
     }
   ]
 }

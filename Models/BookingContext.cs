@@ -254,29 +254,51 @@ namespace Z_TRIP.Models
             return bookings;
         }
 
-        public List<Booking> GetBlockedSchedules(DateTime startDate, DateTime endDate)
+        public List<Booking> GetBlockedSchedules(DateTime? startDate = null, DateTime? endDate = null, int? vehicleUnitId = null)
         {
             var db = new SqlDBHelper(_constr);
-            const string query = @"
-        SELECT b.* 
-        FROM bookings b
-        WHERE b.status_note LIKE 'BLOCKED_BY_ADMIN%'
-        AND b.start_datetime <= @EndDate 
-        AND b.end_datetime >= @StartDate
-        ORDER BY b.start_datetime ASC";
+            string sql = @"
+        SELECT * FROM bookings 
+        WHERE status_note LIKE 'BLOCKED_BY_ADMIN:%'";
 
-            using var cmd = db.GetNpgsqlCommand(query);
-            cmd.Parameters.AddWithValue("@StartDate", startDate);
-            cmd.Parameters.AddWithValue("@EndDate", endDate);
+            List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 
-            var bookings = new List<Booking>();
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
+            // Tambahkan filter tanggal jika disediakan
+            if (startDate.HasValue)
             {
-                bookings.Add(Map(reader));
+                sql += " AND end_datetime >= @StartDate";
+                parameters.Add(new NpgsqlParameter("@StartDate", startDate.Value));
             }
 
-            return bookings;
+            if (endDate.HasValue)
+            {
+                sql += " AND start_datetime <= @EndDate";
+                parameters.Add(new NpgsqlParameter("@EndDate", endDate.Value));
+            }
+
+            // Tambahkan filter unit kendaraan jika disediakan
+            if (vehicleUnitId.HasValue)
+            {
+                sql += " AND vehicle_unit_id = @UnitId";
+                parameters.Add(new NpgsqlParameter("@UnitId", vehicleUnitId.Value));
+            }
+
+            // Urutkan berdasarkan tanggal mulai
+            sql += " ORDER BY start_datetime";
+
+            using var cmd = db.GetNpgsqlCommand(sql);
+            foreach (var param in parameters)
+            {
+                cmd.Parameters.Add(param);
+            }
+
+            List<Booking> list = new();
+            using var rd = cmd.ExecuteReader();
+            while (rd.Read())
+            {
+                list.Add(Map(rd));
+            }
+            return list;
         }
 
         public List<Booking> GetBookingsByVehicleName(string vehicleName, DateTime startDate, DateTime endDate)
@@ -369,6 +391,114 @@ namespace Z_TRIP.Models
             int rowsAffected = cmd.ExecuteNonQuery();
             db.CloseConnection();
             return rowsAffected > 0;
+        }
+
+        public List<Booking> GetAllBlockedSchedules(int? vehicleUnitId = null)
+        {
+            var db = new SqlDBHelper(_constr);
+            string sql;
+
+            // Jika vehicleUnitId disediakan, filter berdasarkan unit tersebut
+            if (vehicleUnitId.HasValue)
+            {
+                sql = @"
+                    SELECT * FROM bookings 
+                    WHERE status_note LIKE 'BLOCKED_BY_ADMIN:%' 
+                    AND vehicle_unit_id = @UnitId
+                    ORDER BY start_datetime";
+
+                using var cmd = db.GetNpgsqlCommand(sql);
+                cmd.Parameters.AddWithValue("@UnitId", vehicleUnitId.Value);
+                return ReadBookings(cmd);
+            }
+            else
+            {
+                // Jika tidak disediakan vehicleUnitId, ambil semua blocked schedule
+                sql = @"
+                    SELECT * FROM bookings 
+                    WHERE status_note LIKE 'BLOCKED_BY_ADMIN:%'
+                    ORDER BY start_datetime";
+
+                using var cmd = db.GetNpgsqlCommand(sql);
+                return ReadBookings(cmd);
+            }
+        }
+
+        private List<Booking> ReadBookings(NpgsqlCommand cmd)
+        {
+            List<Booking> list = new();
+            using var rd = cmd.ExecuteReader();
+            while (rd.Read())
+            {
+                list.Add(Map(rd));
+            }
+            return list;
+        }
+
+        public List<BlockedDateInfo> GetAllBlockedDates(DateTime? startDate = null, DateTime? endDate = null)
+        {
+            // Ambil semua jadwal yang diblokir
+            var blockedSchedules = GetBlockedSchedules(startDate, endDate, null);
+
+            // Inisialisasi kontext untuk data kendaraan
+            var unitCtx = new VehicleUnitsContext(_constr);
+            var vehicleCtx = new VehicleContext(_constr);
+
+            // Konversi ke format yang diinginkan
+            List<BlockedDateInfo> result = new List<BlockedDateInfo>();
+
+            foreach (var booking in blockedSchedules)
+            {
+                // Kumpulkan informasi unit kendaraan
+                var unit = unitCtx.GetVehicleUnitById(booking.VehicleUnitId);
+                string vehicleName = "Unknown";
+                string vehicleMerk = "Unknown";
+
+                if (unit != null)
+                {
+                    var vehicle = vehicleCtx.GetVehicleById(unit.VehicleId);
+                    if (vehicle != null)
+                    {
+                        vehicleName = vehicle.Name;
+                        vehicleMerk = vehicle.Merk;
+                    }
+                }
+
+                // Penanganan tanggal: untuk setiap hari dalam rentang booking yang diblokir,
+                // tambahkan entry untuk menunjukkan bahwa unit tersebut diblokir pada hari itu
+                DateTime currentDate = booking.StartDatetime.Date;
+                DateTime bookingEndDate = booking.EndDatetime.Date; // Changed variable name here
+
+                while (currentDate <= bookingEndDate) // And use the new name here
+                {
+                    result.Add(new BlockedDateInfo
+                    {
+                        Date = currentDate,
+                        VehicleUnitId = booking.VehicleUnitId,
+                        VehicleUnitCode = unit?.Code ?? "Unknown",
+                        VehicleName = vehicleName,
+                        VehicleMerk = vehicleMerk,
+                        Note = booking.StatusNote?.Replace("BLOCKED_BY_ADMIN: ", ""),
+                        BookingId = booking.Id
+                    });
+
+                    currentDate = currentDate.AddDays(1);
+                }
+            }
+
+            return result;
+        }
+
+        // Class untuk menyimpan informasi tanggal yang diblokir
+        public class BlockedDateInfo
+        {
+            public DateTime Date { get; set; }
+            public int VehicleUnitId { get; set; }
+            public string? VehicleUnitCode { get; set; }
+            public string? VehicleName { get; set; }
+            public string? VehicleMerk { get; set; }
+            public string? Note { get; set; }
+            public int BookingId { get; set; }
         }
     }
 }

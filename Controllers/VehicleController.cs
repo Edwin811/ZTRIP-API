@@ -6,6 +6,7 @@ using Z_TRIP.Models;
 using System.Collections.Generic;
 using System;
 using Z_TRIP.Exceptions;
+using System.Linq;
 
 namespace Z_TRIP.Controllers
 {
@@ -198,6 +199,30 @@ namespace Z_TRIP.Controllers
             catch (Exception)
             {
                 throw; // Let global handler handle it
+            }
+        }
+
+        // GET api/vehicle/categories
+        [HttpGet("categories")]
+        [AllowAnonymous]
+        public ActionResult GetCategories()
+        {
+            try
+            {
+                var categories = Enum.GetValues(typeof(vehicle_category_enum))
+                    .Cast<vehicle_category_enum>()
+                    .Select(c => new
+                    {
+                        id = (int)c,
+                        name = c.ToString()
+                    })
+                    .ToList();
+
+                return Ok(categories);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error: {ex.Message}" });
             }
         }
     }
