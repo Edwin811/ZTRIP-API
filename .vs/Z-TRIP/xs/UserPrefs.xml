@@ -1,0 +1,47 @@
+﻿<Properties StartupConfiguration="{2B0E4420-4065-5385-35C3-4F63D6682B1A}|http">
+  <MonoDevelop.Ide.DebuggingService.Breakpoints>
+    <BreakpointStore />
+  </MonoDevelop.Ide.DebuggingService.Breakpoints>
+  <MultiItemStartupConfigurations />
+  <MonoDevelop.Ide.ItemProperties.Z-TRIP PreferredExecutionTarget="/Applications/Google Chrome.app" />
+  <MonoDevelop.Ide.DebuggingService.PinnedWatches />
+  <MonoDevelop.Ide.Workspace ActiveConfiguration="Debug" />
+  <MonoDevelop.Ide.Workbench ActiveDocument="Models/UsersContext.cs">
+    <Files>
+      <File FileName="Controllers/VehicleController.cs" Line="121" Column="32" />
+      <File FileName="Program.cs" Line="62" Column="34" />
+      <File FileName="Controllers/AuthController.cs" Line="26" Column="34" />
+      <File FileName="Controllers/BookingController.cs" />
+      <File FileName="Controllers/PasswordResetsController.cs" />
+      <File FileName="appsettings.json" Line="16" Column="1" />
+      <File FileName="Models/Users.cs" Line="19" Column="6" />
+      <File FileName="Models/UsersContext.cs" Line="32" Column="29" />
+      <File FileName="Models/Login.cs" Line="9" Column="1" />
+      <File FileName="Models/Vehicles.cs" Line="23" Column="2" />
+      <File FileName="Models/VehiclesContext.cs" Line="202" Column="1" />
+      <File FileName="Models/VehicleUnit.cs" Line="1" Column="1" />
+      <File FileName="Models/VehicleUnitsContext.cs" />
+      <File FileName="Controllers/VehicleUnitsController.cs" />
+      <File FileName="Models/PasswordReset.cs" Line="1" Column="1" />
+      <File FileName="Models/TransaksiContext.cs" Line="1" Column="1" />
+      <File FileName="Models/PasswordResetsContext.cs" Line="1" Column="1" />
+      <File FileName="Models/Tracking.cs" Line="1" Column="1" />
+      <File FileName="Models/TrackingContext.cs" Line="1" Column="1" />
+      <File FileName="Models/Transaksi.cs" Line="1" Column="1" />
+    </Files>
+    <Pads>
+      <Pad Id="ProjectPad">
+        <State name="__root__">
+          <Node name="Z-TRIP">
+            <Node name="Z-TRIP">
+              <Node name="Controllers" expanded="True" />
+              <Node name="Models" expanded="True">
+                <Node name="UsersContext.cs" selected="True" />
+              </Node>
+            </Node>
+          </Node>
+        </State>
+      </Pad>
+    </Pads>
+  </MonoDevelop.Ide.Workbench>
+</Properties>
