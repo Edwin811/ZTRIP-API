@@ -3,7 +3,7 @@ using System.Text;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Z_TRIP.Models;
+using Z_TRIP.Models.Contexts;
 using Z_TRIP.Helpers;
 using Z_TRIP.Services;
 using Z_TRIP.Models.Contexts;

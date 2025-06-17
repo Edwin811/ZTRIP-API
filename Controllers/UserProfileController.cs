@@ -1,3 +1,4 @@
+
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.IO;
@@ -311,68 +312,45 @@ namespace Z_TRIP.Controllers
         {
             try
             {
+                // Validasi file
                 if (file == null || file.Length == 0)
                     return BadRequest(new { message = "File tidak boleh kosong" });
 
-                // Validasi nama file
-                if (string.IsNullOrEmpty(file.FileName))
-                    return BadRequest(new { message = "Nama file tidak valid" });
-
-                // Validate file extension
+                // Validasi format dan ukuran
+                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
                 var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-                if (string.IsNullOrEmpty(extension) || !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
+
+                if (string.IsNullOrEmpty(extension) ||
+                    !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
                     return BadRequest(new { message = "Format file harus jpg, jpeg, atau png" });
 
-                // Validasi tipe file
-                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
                 if (!allowedTypes.Contains(file.ContentType))
-                    return BadRequest(new { message = "Tipe file tidak didukung, gunakan JPG atau PNG" });
+                    return BadRequest(new { message = "Tipe file tidak valid" });
 
-                // Validasi ukuran file (maks 5MB)
                 if (file.Length > 5 * 1024 * 1024)
                     return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
 
-                // Validate minimum file size (avoid empty files)
-                if (file.Length < 1024) // Minimum 1KB
-                    return BadRequest(new { message = "File terlalu kecil, mungkin korup atau tidak lengkap" });
+                // Dapatkan ID user dari token
+                var userIdClaim = User.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
+                    return Unauthorized(new { message = "User tidak valid" });
 
-                // Rest of your existing code
-                try
+                // Konversi file ke byte array
+                byte[] imageData;
+                using (var ms = new MemoryStream())
                 {
-                    // Ambil user id dari claim
-                    var userIdClaim = User.FindFirst("userId")?.Value;
-
-                    if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
-                        return Unauthorized(new { message = "User tidak valid" });
-
-                    // Konversi ke byte array
-                    byte[] imageData;
-                    using (var ms = new MemoryStream())
-                    {
-                        await file.CopyToAsync(ms);
-                        imageData = ms.ToArray();
-                    }
-
-                    // Update di database
-                    var ctx = new UsersContext(_constr);
-                    bool success = ctx.UpdateProfileImage(userId, imageData);
-
-                    if (success)
-                    {
-                        var user = ctx.GetUserById(userId); // Get updated user info
-                        return Ok(new
-                        {
-                            message = "Foto profil berhasil diupload",
-                            is_verified = user?.IsVerified ?? false // Tambahkan status verifikasi
-                        });
-                    }
-
-                    return StatusCode(500, new { message = "Gagal menyimpan foto profil" });
+                    await file.CopyToAsync(ms);
+                    imageData = ms.ToArray();
                 }
-                catch (Exception ex)
+
+                // Update profile image
+                var ctx = new UsersContext(_constr);
+                if (ctx.UpdateProfileImage(userId, imageData))
                 {
-                    return StatusCode(500, new { message = $"Error: {ex.Message}" });
+                    return Ok(new { message = "Foto profil berhasil diupdate" });
                 }
+
+                return StatusCode(500, new { message = "Gagal mengupdate foto profil" });
             }
             catch (Exception ex)
             {

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "N2oXR00grfM=",
+  "dgSpecHash": "9dxKdQR+w8A=",
   "success": true,
   "projectFilePath": "/Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/Z-TRIP.csproj",
   "expectedPackageFiles": [
@@ -18,8 +18,9 @@
     "/Users/edwinsantoso/.nuget/packages/microsoft.openapi/1.2.3/microsoft.openapi.1.2.3.nupkg.sha512",
     "/Users/edwinsantoso/.nuget/packages/npgsql/9.0.3/npgsql.9.0.3.nupkg.sha512",
     "/Users/edwinsantoso/.nuget/packages/swashbuckle.aspnetcore/6.4.0/swashbuckle.aspnetcore.6.4.0.nupkg.sha512",
-    "/Users/edwinsantoso/.nuget/packages/swashbuckle.aspnetcore.swagger/6.4.0/swashbuckle.aspnetcore.swagger.6.4.0.nupkg.sha512",
-    "/Users/edwinsantoso/.nuget/packages/swashbuckle.aspnetcore.swaggergen/6.4.0/swashbuckle.aspnetcore.swaggergen.6.4.0.nupkg.sha512",
+    "/Users/edwinsantoso/.nuget/packages/swashbuckle.aspnetcore.annotations/6.5.0/swashbuckle.aspnetcore.annotations.6.5.0.nupkg.sha512",
+    "/Users/edwinsantoso/.nuget/packages/swashbuckle.aspnetcore.swagger/6.5.0/swashbuckle.aspnetcore.swagger.6.5.0.nupkg.sha512",
+    "/Users/edwinsantoso/.nuget/packages/swashbuckle.aspnetcore.swaggergen/6.5.0/swashbuckle.aspnetcore.swaggergen.6.5.0.nupkg.sha512",
     "/Users/edwinsantoso/.nuget/packages/swashbuckle.aspnetcore.swaggerui/6.4.0/swashbuckle.aspnetcore.swaggerui.6.4.0.nupkg.sha512",
     "/Users/edwinsantoso/.nuget/packages/system.diagnostics.diagnosticsource/8.0.1/system.diagnostics.diagnosticsource.8.0.1.nupkg.sha512",
     "/Users/edwinsantoso/.nuget/packages/system.identitymodel.tokens.jwt/6.15.1/system.identitymodel.tokens.jwt.6.15.1.nupkg.sha512",
@@ -28,12 +29,5 @@
     "/Users/edwinsantoso/.nuget/packages/system.text.encodings.web/8.0.0/system.text.encodings.web.8.0.0.nupkg.sha512",
     "/Users/edwinsantoso/.nuget/packages/system.text.json/8.0.5/system.text.json.8.0.5.nupkg.sha512"
   ],
-  "logs": [
-    {
-      "code": "Undefined",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Problem reading the cache file /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/obj/project.nuget.cache : Operation timed out : '/Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/obj/project.nuget.cache'"
-    }
-  ]
+  "logs": []
 }

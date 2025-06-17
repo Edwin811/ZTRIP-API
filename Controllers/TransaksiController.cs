@@ -1,4 +1,5 @@
-﻿// File: Controllers/TransaksiController.cs
+﻿
+// File: Controllers/TransaksiController.cs
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Z_TRIP.Models;
@@ -182,81 +183,57 @@ namespace Z_TRIP.Controllers
         {
             try
             {
-                // Add validation for ID
+                // Validasi parameter
                 if (id <= 0)
                     return BadRequest(new { message = "ID transaksi tidak valid" });
 
+                // Validasi file
                 if (file == null || file.Length == 0)
                     return BadRequest(new { message = "File bukti pembayaran tidak boleh kosong" });
 
-                // Validate file has a filename
-                if (string.IsNullOrEmpty(file.FileName))
-                    return BadRequest(new { message = "Nama file tidak valid" });
-
-                // Validate file extension
+                // Validasi format dan ukuran
+                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
                 var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-                if (string.IsNullOrEmpty(extension) || !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
+
+                if (string.IsNullOrEmpty(extension) ||
+                    !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
                     return BadRequest(new { message = "Format file harus jpg, jpeg, atau png" });
 
-                // Validasi tipe file
-                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
                 if (!allowedTypes.Contains(file.ContentType))
-                    return BadRequest(new { message = "Tipe file tidak didukung, gunakan JPG atau PNG" });
+                    return BadRequest(new { message = "Tipe file tidak valid" });
 
-                // Validasi ukuran file (maks 5MB)
                 if (file.Length > 5 * 1024 * 1024)
                     return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
 
                 // Ambil user ID dari token
                 var userIdClaim = User.FindFirst("userId")?.Value;
                 if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
-                {
                     return Unauthorized(new { message = "User tidak valid" });
-                }
 
-                bool isAdmin = User.IsInRole("Admin");
-
-                // Dapatkan transaksi
+                // Periksa transaksi
                 var context = new TransaksiContext(_constr);
                 var transaksi = context.GetTransaksiById(id);
 
                 if (transaksi == null)
-                    return NotFound(new { message = $"Transaksi dengan ID {id} tidak ditemukan" });
+                    return NotFound(new { message = "Transaksi tidak ditemukan" });
 
-                // Verifikasi kepemilikan transaksi
+                // Periksa apakah user berhak mengakses transaksi ini
                 var bookingCtx = new BookingContext(_constr);
                 var booking = bookingCtx.GetBookingByTransactionId(id);
 
-                if (booking == null)
-                    return NotFound(new { message = "Booking terkait transaksi ini tidak ditemukan" });
-
-                // Jika bukan admin, verifikasi kepemilikan
-                if (!isAdmin && booking.UserId != userId)
+                bool isAdmin = User.IsInRole("Admin");
+                if (!isAdmin && (booking == null || booking.UserId != userId))
                     return Forbid();
 
-                // Verifikasi status booking tidak rejected
-                if (booking.Status == booking_status_enum.rejected)
-                {
-                    return BadRequest(new
-                    {
-                        message = "Booking telah ditolak. Bukti pembayaran tidak dapat diupload.",
-                        statusNote = booking.StatusNote
-                    });
-                }
+                if (booking == null)
+                    return NotFound(new { message = "Booking tidak ditemukan untuk transaksi ini" });
 
-                // Validasi status transaksi - hanya unpaid yang boleh upload baru
+                // Validasi status booking dan transaksi
+                if (booking.Status == booking_status_enum.rejected)
+                    return BadRequest(new { message = "Tidak dapat mengupload bukti pembayaran karena booking sudah ditolak" });
+
                 if (transaksi.PaymentStatus == payment_status_enum.paid)
-                {
                     return BadRequest(new { message = "Pembayaran sudah diverifikasi" });
-                }
-                else if (transaksi.PaymentStatus == payment_status_enum.pending)
-                {
-                    // Jika status pending, mungkin admin menolak pembayaran sebelumnya
-                    // Atau customer ingin mengupload bukti baru, tetap izinkan
-                    // Namun beri peringatan
-                    var warningMessage = "Bukti pembayaran sebelumnya akan diganti dengan yang baru";
-                    // Bisa dilanjutkan
-                }
 
                 // Konversi file ke byte array
                 byte[] imageData;
@@ -266,23 +243,15 @@ namespace Z_TRIP.Controllers
                     imageData = ms.ToArray();
                 }
 
-                // Simpan ke database
+                // Update status payment
                 if (!context.UploadPaymentProof(id, imageData))
                     return StatusCode(500, new { message = "Gagal mengupload bukti pembayaran" });
 
-                // Update status menjadi pending untuk diverifikasi admin
-                context.UpdateTransaksiStatus(id, payment_status_enum.pending.ToString());
+                // Update status transaksi menjadi pending (menunggu verifikasi)
+                if (!context.UpdateTransaksiStatus(id, payment_status_enum.pending.ToString()))
+                    return StatusCode(500, new { message = "Gagal mengupdate status pembayaran" });
 
-                // Update booking status note
-                bookingCtx.UpdateStatusNote(booking.Id,
-                    "Bukti pembayaran telah diupload, menunggu verifikasi admin");
-
-                return Ok(new
-                {
-                    message = "Bukti pembayaran berhasil diupload",
-                    status = "pending",
-                    nextSteps = new[] { "Bukti pembayaran Anda akan diverifikasi oleh admin" }
-                });
+                return Ok(new { message = "Bukti pembayaran berhasil diupload" });
             }
             catch (Exception ex)
             {

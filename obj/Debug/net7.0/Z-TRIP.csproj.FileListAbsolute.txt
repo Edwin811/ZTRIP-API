@@ -17,6 +17,7 @@
 /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/bin/Debug/net7.0/Microsoft.IdentityModel.Tokens.dll
 /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/bin/Debug/net7.0/Microsoft.OpenApi.dll
 /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/bin/Debug/net7.0/Npgsql.dll
+/Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/bin/Debug/net7.0/Swashbuckle.AspNetCore.Annotations.dll
 /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/bin/Debug/net7.0/Swashbuckle.AspNetCore.Swagger.dll
 /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/bin/Debug/net7.0/Swashbuckle.AspNetCore.SwaggerGen.dll
 /Users/edwinsantoso/Documents/KULIAH/4/uas/paapbm/Z-TRIP-API/Z-TRIP/bin/Debug/net7.0/Swashbuckle.AspNetCore.SwaggerUI.dll

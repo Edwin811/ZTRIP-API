@@ -44,6 +44,9 @@ builder.Services.AddSwaggerGen(option =>
         Version = "v1"
     });
 
+    // Tambahkan baris ini
+    option.EnableAnnotations();
+
     option.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         In = ParameterLocation.Header,

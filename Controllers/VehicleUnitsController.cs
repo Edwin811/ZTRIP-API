@@ -367,40 +367,34 @@ namespace Z_TRIP.Controllers
         {
             try
             {
-                // Add validation for ID parameter
+                // Validasi parameter
                 if (id <= 0)
-                    return BadRequest(new { message = "ID unit kendaraan harus lebih dari 0" });
+                    return BadRequest(new { message = "ID kendaraan tidak valid" });
 
+                // Validasi file
                 if (file == null || file.Length == 0)
                     return BadRequest(new { message = "File tidak boleh kosong" });
 
-                // Add validation for file name
-                if (string.IsNullOrEmpty(file.FileName))
-                    return BadRequest(new { message = "Nama file tidak valid" });
-
-                // Add validation for file extension
+                // Validasi format file
+                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
                 var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-                if (string.IsNullOrEmpty(extension) || !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
+
+                if (string.IsNullOrEmpty(extension) ||
+                    !new[] { ".jpg", ".jpeg", ".png" }.Contains(extension))
                     return BadRequest(new { message = "Format file harus jpg, jpeg, atau png" });
 
-                // Validasi tipe file
-                var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
                 if (!allowedTypes.Contains(file.ContentType))
-                    return BadRequest(new { message = "Tipe file tidak didukung, gunakan JPG atau PNG" });
+                    return BadRequest(new { message = "Tipe file tidak valid" });
 
-                // Validasi ukuran file (maks 5MB)
                 if (file.Length > 5 * 1024 * 1024)
                     return BadRequest(new { message = "Ukuran file tidak boleh lebih dari 5MB" });
 
-                // Validasi ukuran file minimum untuk mencegah file kosong
-                if (file.Length < 1024) // minimal 1KB
-                    return BadRequest(new { message = "File terlalu kecil, mungkin rusak" });
-
-                // Check if unit exists
+                // Periksa apakah unit ada
                 var context = new VehicleUnitsContext(_constr);
                 var unit = context.GetVehicleUnitById(id);
+
                 if (unit == null)
-                    return NotFound(new { message = $"Unit kendaraan dengan ID {id} tidak ditemukan" });
+                    return NotFound(new { message = "Unit kendaraan tidak ditemukan" });
 
                 // Konversi file ke byte array
                 byte[] imageData;
@@ -410,11 +404,13 @@ namespace Z_TRIP.Controllers
                     imageData = ms.ToArray();
                 }
 
-                // Simpan ke database
+                // Simpan gambar ke database
                 if (context.UpdateVehicleImage(id, imageData))
-                    return Ok(new { message = "Gambar kendaraan berhasil diupload" });
+                {
+                    return Ok(new { message = "Gambar berhasil diunggah" });
+                }
 
-                return NotFound(new { message = "Vehicle unit tidak ditemukan" });
+                return StatusCode(500, new { message = "Gagal mengunggah gambar" });
             }
             catch (Exception ex)
             {

@@ -8,7 +8,6 @@ using Z_TRIP.Models;
 using System.Linq;
 using Z_TRIP.Models.Contexts;
 
-
 namespace Z_TRIP.Controllers
 {
     [Route("api/auth")]
@@ -24,29 +23,33 @@ namespace Z_TRIP.Controllers
             _constr = config.GetConnectionString("koneksi")!;
         }
 
+        public class RegisterRequest
+        {
+            public string Email { get; set; } = string.Empty;
+            public string Name { get; set; } = string.Empty;
+            public string Password { get; set; } = string.Empty;
+            public IFormFile? ProfileImage { get; set; }
+            public IFormFile? KtpImage { get; set; }
+            public IFormFile? SimImage { get; set; }
+        }
+
         [HttpPost("register")]
-        public async Task<IActionResult> Register(
-            [FromForm] string email,
-            [FromForm] string name,
-            [FromForm] string password,
-            [FromForm] IFormFile? profileImage = null,
-            [FromForm] IFormFile? ktpImage = null,
-            [FromForm] IFormFile? simImage = null)
+        public async Task<IActionResult> Register([FromForm] RegisterRequest request)
         {
             try
             {
                 // Validasi input - expand basic validation
-                if (string.IsNullOrEmpty(email))
+                if (string.IsNullOrEmpty(request.Email))
                 {
                     return BadRequest(new { message = "Email tidak boleh kosong" });
                 }
 
-                if (string.IsNullOrEmpty(name))
+                if (string.IsNullOrEmpty(request.Name))
                 {
                     return BadRequest(new { message = "Nama tidak boleh kosong" });
                 }
 
-                if (string.IsNullOrEmpty(password))
+                if (string.IsNullOrEmpty(request.Password))
                 {
                     return BadRequest(new { message = "Password tidak boleh kosong" });
                 }
@@ -54,8 +57,8 @@ namespace Z_TRIP.Controllers
                 // Validate email format
                 try
                 {
-                    var addr = new System.Net.Mail.MailAddress(email);
-                    if (addr.Address != email)
+                    var addr = new System.Net.Mail.MailAddress(request.Email);
+                    if (addr.Address != request.Email)
                     {
                         return BadRequest(new { message = "Format email tidak valid" });
                     }
@@ -66,84 +69,45 @@ namespace Z_TRIP.Controllers
                 }
 
                 // Validate password strength
-                if (password.Length < 6)
+                if (request.Password.Length < 6)
                 {
                     return BadRequest(new { message = "Password minimal 6 karakter" });
                 }
 
                 // Cek apakah email sudah terdaftar
                 var ctx = new UsersContext(_constr);
-                if (ctx.GetUserByEmail(email) != null)
+                if (ctx.GetUserByEmail(request.Email) != null)
                 {
                     return BadRequest(new { message = "Email sudah terdaftar" });
                 }
 
-                // Proses KTP jika ada
-                byte[]? ktpImageData = null;
-                if (ktpImage != null && ktpImage.Length > 0)
-                {
-                    // Validasi tipe file
-                    var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-                    if (!allowedTypes.Contains(ktpImage.ContentType))
-                        return BadRequest(new { message = "Tipe file KTP tidak didukung, gunakan JPG atau PNG" });
-
-                    // Validasi ukuran file (maks 5MB)
-                    if (ktpImage.Length > 5 * 1024 * 1024)
-                        return BadRequest(new { message = "Ukuran file KTP tidak boleh lebih dari 5MB" });
-
-                    // Konversi file ke byte array
-                    using var ms = new MemoryStream();
-                    await ktpImage.CopyToAsync(ms);
-                    ktpImageData = ms.ToArray();
-                }
-
-                // Proses SIM jika ada
-                byte[]? simImageData = null;
-                if (simImage != null && simImage.Length > 0)
-                {
-                    // Validasi tipe file
-                    var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-                    if (!allowedTypes.Contains(simImage.ContentType))
-                        return BadRequest(new { message = "Tipe file SIM tidak didukung, gunakan JPG atau PNG" });
-
-                    // Validasi ukuran file (maks 5MB)
-                    if (simImage.Length > 5 * 1024 * 1024)
-                        return BadRequest(new { message = "Ukuran file SIM tidak boleh lebih dari 5MB" });
-
-                    // Konversi file ke byte array
-                    using var ms = new MemoryStream();
-                    await simImage.CopyToAsync(ms);
-                    simImageData = ms.ToArray();
-                }
-
-                // Proses foto profil jika ada
+                // Proses gambar secara langsung di controller
                 byte[]? profileImageData = null;
-                if (profileImage != null && profileImage.Length > 0)
+                if (request.ProfileImage != null && request.ProfileImage.Length > 0)
                 {
-                    // Validasi tipe file
+                    // Validasi file
                     var allowedTypes = new[] { "image/jpeg", "image/png", "image/jpg" };
-                    if (!allowedTypes.Contains(profileImage.ContentType))
-                        return BadRequest(new { message = "Tipe file profil tidak didukung, gunakan JPG atau PNG" });
+                    if (!allowedTypes.Contains(request.ProfileImage.ContentType))
+                        return BadRequest(new { message = "Format file profil tidak valid" });
 
                     // Validasi ukuran file (maks 5MB)
-                    if (profileImage.Length > 5 * 1024 * 1024)
+                    if (request.ProfileImage.Length > 5 * 1024 * 1024)
                         return BadRequest(new { message = "Ukuran file profil tidak boleh lebih dari 5MB" });
 
-                    // Konversi file ke byte array
                     using var ms = new MemoryStream();
-                    await profileImage.CopyToAsync(ms);
+                    await request.ProfileImage.CopyToAsync(ms);
                     profileImageData = ms.ToArray();
                 }
 
                 // Buat user baru
                 var user = new Users
                 {
-                    Email = email,
-                    Name = name,
-                    Password = password, // Akan di-hash di RegisterUserWithIdentity
+                    Email = request.Email,
+                    Name = request.Name,
+                    Password = request.Password, // Akan di-hash di RegisterUserWithIdentity
                     Profile = profileImageData, // Sekarang menggunakan byte[] untuk profile
-                    KtpImage = ktpImageData,
-                    SimImage = simImageData,
+                    KtpImage = null, // KTP diabaikan
+                    SimImage = null, // SIM diabaikan
                     Role = false // Default role adalah customer
                 };
 
@@ -158,8 +122,8 @@ namespace Z_TRIP.Controllers
                         message = "Registrasi berhasil",
                         user_id = userId,
                         hasProfile = profileImageData != null,
-                        hasKtp = ktpImageData != null,
-                        hasSim = simImageData != null
+                        hasKtp = false, // KTP diabaikan
+                        hasSim = false  // SIM diabaikan
                     });
                 }
                 else

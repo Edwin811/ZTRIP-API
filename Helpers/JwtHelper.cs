@@ -38,7 +38,7 @@ namespace Z_TRIP.Helpers
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             // Token expires dalam 1 hari
-            var expires = DateTime.Now.AddDays(1);
+            var expires = DateTime.Now.AddDays(7);
 
             var token = new JwtSecurityToken(
                 issuer: _config["Jwt:Issuer"],
